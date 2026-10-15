@@ -40,6 +40,8 @@ final class PlayerController {
     private(set) var repeatMode: RepeatMode = .all
     var showNowPlaying = false
     var showLyrics = false
+    /// 正在调整歌词时间：歌词页下方显示「提前 / 延后」按钮（在 ⋯ 菜单里开、关）
+    var adjustingLyrics = false
 
     private(set) var lyrics: [LyricLine] = [] { didSet { refreshLyricIndex() } }
     private(set) var lyricsState: LyricsState = .idle
@@ -76,9 +78,20 @@ final class PlayerController {
     /// 所以歌词页、底部播放条那句歌词不会每 0.25 秒整个重画一遍
     private(set) var currentLyricIndex: Int?
 
+    /// 系统「正在播放」（控制中心、菜单栏）上显示到第几句。系统收到更新后要过一会儿才显示，所以提前 0.5 秒换句（和 iPhone 版一样）
+    @ObservationIgnored private var lockLyricIndex: Int? {
+        didSet { if lockLyricIndex != oldValue, AppSettings.lockScreenLyrics { updateNowPlayingInfo() } }
+    }
+    private static let lockScreenLead = 0.5
+
+    /// 正在拖动进度条：拖到的时间（松手前不真的跳过去）。歌词按它来亮，方便看拖到了哪一句
+    var scrubTime: Double? { didSet { refreshLyricIndex() } }
+
     private func refreshLyricIndex() {
-        let index = LRCParser.index(in: lyrics, at: currentTime + 0.15 + lyricOffset)
+        let index = LRCParser.index(in: lyrics, at: (scrubTime ?? currentTime) + 0.15 + lyricOffset)
         if index != currentLyricIndex { currentLyricIndex = index }
+        let lockIndex = LRCParser.index(in: lyrics, at: (scrubTime ?? currentTime) + 0.15 + lyricOffset + Self.lockScreenLead)
+        if lockIndex != lockLyricIndex { lockLyricIndex = lockIndex }
     }
 
     // MARK: 歌词时间调整
@@ -108,9 +121,14 @@ final class PlayerController {
         seek(to: time - lyricOffset)
     }
 
+    /// 调整歌词时点了某一句：让这一句正好在「现在」亮起来（自动算出提前 / 延后多少秒）
+    func alignLyric(at lineTime: Double) {
+        setLyricOffset(lineTime - currentTime - 0.15)
+    }
+
     private func setLyricOffset(_ value: Double) {
         guard let track = current else { return }
-        let rounded = (value * 2).rounded() / 2   // 保持 0.5 的整数倍，避免浮点误差累积
+        let rounded = (value * 10).rounded() / 10   // 精确到 0.1 秒，避免浮点误差累积
         lyricOffset = rounded
         var all = UserDefaults.standard.dictionary(forKey: Self.lyricOffsetsKey) as? [String: Double] ?? [:]
         all[track.path] = rounded == 0 ? nil : rounded
@@ -474,16 +492,40 @@ final class PlayerController {
         }
         var info: [String: Any] = [
             MPMediaItemPropertyTitle: track.title,
-            MPMediaItemPropertyArtist: track.artist,
+            MPMediaItemPropertyArtist: lockScreenSubtitle(for: track),
             MPMediaItemPropertyAlbumTitle: track.album,
             MPMediaItemPropertyPlaybackDuration: duration,
             MPNowPlayingInfoPropertyElapsedPlaybackTime: currentTime,
             MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? 1.0 : 0.0,
         ]
         if let image = nowPlayingArtwork {
-            info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+            // 同一张封面只生成一次，换句更新歌词时不用重新传图
+            if image !== artworkSource {
+                artworkSource = image
+                artworkItem = Self.makeArtwork(image)
+            }
+            info[MPMediaItemPropertyArtwork] = artworkItem
         }
         center.nowPlayingInfo = info
         center.playbackState = isPlaying ? .playing : .paused
+    }
+
+    @ObservationIgnored private var artworkSource: NSImage?
+    @ObservationIgnored private var artworkItem: MPMediaItemArtwork?
+
+    /// 系统「正在播放」第二行：有带时间轴的歌词就显示当前这句，没有（或者间奏空行）就显示歌手
+    private func lockScreenSubtitle(for track: Track) -> String {
+        guard AppSettings.lockScreenLyrics, hasSyncedLyrics,
+              let i = lockLyricIndex, lyrics.indices.contains(i) else { return track.artist }
+        let line = lyrics[i].text.trimmingCharacters(in: .whitespaces)
+        return line.isEmpty ? track.artist : line
+    }
+
+    /// 设置里开关「在系统『正在播放』里显示歌词」后马上刷新
+    func refreshLockScreen() { updateNowPlayingInfo() }
+
+    /// 系统会在后台线程来取封面，所以这个闭包不能绑在主线程上
+    nonisolated private static func makeArtwork(_ image: NSImage) -> MPMediaItemArtwork {
+        MPMediaItemArtwork(boundsSize: image.size) { _ in image }
     }
 }

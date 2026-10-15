@@ -4,7 +4,7 @@ import Foundation
 struct OnlineCandidate: Identifiable, Sendable {
     enum Source: String, Sendable {
         case kugou = "酷狗"
-        case lrclib = "LRCLIB"
+        case qq = "QQ 音乐"
         case itunes = "iTunes"
     }
 
@@ -12,7 +12,8 @@ struct OnlineCandidate: Identifiable, Sendable {
     enum LyricsRef: Sendable {
         case kugouHash(String)       // 酷狗歌曲的 hash，用到时再查歌词
         case kugouID(String, String) // 酷狗歌词的 id + accesskey
-        case text(String)            // LRCLIB 直接给了歌词
+        case qqMid(String)           // QQ 音乐的 songmid，用到时再下载歌词
+        case text(String)            // 直接给了歌词文本
     }
 
     let id = UUID()
@@ -23,7 +24,7 @@ struct OnlineCandidate: Identifiable, Sendable {
     var duration: Double?
     var coverURL: URL?
     var lyrics: LyricsRef?
-    /// 只有 LRCLIB 能事先知道是否带时间轴；酷狗的要下载后才知道
+    /// 是否带时间轴（酷狗的要下载后才知道，所以一般是 nil）
     var synced: Bool?
 }
 
@@ -33,8 +34,21 @@ enum SourceResult: Sendable {
     case failed(String)
 }
 
-/// 「联网搜索」：同时查 酷狗、LRCLIB、iTunes，列出所有候选让用户自己选
+/// 「联网搜索」：同时查 酷狗、QQ 音乐、iTunes，列出所有候选让用户自己选
 enum OnlineSearch {
+    static func qq(_ query: String) async -> SourceResult {
+        guard let items = await OnlineMedia.qqSearch(query, count: 12) else { return .failed("连接失败") }
+        return .ok(items.compactMap { item in
+            guard let mid = item.songmid, let title = item.songname, !title.isEmpty else { return nil }
+            let artist = (item.singer ?? []).compactMap(\.name).joined(separator: " / ")
+            return OnlineCandidate(source: .qq, title: title, artist: artist,
+                                   album: item.albumname.flatMap { $0.isEmpty ? nil : $0 },
+                                   duration: item.interval.map(Double.init),
+                                   coverURL: OnlineMedia.qqCoverURL(albumMid: item.albummid),
+                                   lyrics: .qqMid(mid))
+        })
+    }
+
     static func kugou(_ query: String) async -> SourceResult {
         var comps = URLComponents(string: "https://songsearch.kugou.com/song_search_v2")!
         comps.queryItems = [
@@ -118,33 +132,6 @@ enum OnlineSearch {
         let candidates: [Candidate]?
     }
 
-    static func lrclib(_ query: String) async -> SourceResult {
-        var comps = URLComponents(string: "https://lrclib.net/api/search")!
-        comps.queryItems = [URLQueryItem(name: "q", value: query)]
-        struct Item: Decodable {
-            let trackName: String?
-            let artistName: String?
-            let albumName: String?
-            let duration: Double?
-            let syncedLyrics: String?
-            let plainLyrics: String?
-        }
-        guard let url = comps.url else { return .failed("请求无效") }
-        do {
-            let data = try await OnlineMedia.getData(url)
-            let items = try JSONDecoder().decode([Item].self, from: data)
-            return .ok(items.prefix(15).compactMap { item in
-                let synced = nonBlank(item.syncedLyrics)
-                guard let title = item.trackName, let text = synced ?? nonBlank(item.plainLyrics) else { return nil }
-                return OnlineCandidate(source: .lrclib, title: title, artist: item.artistName ?? "",
-                                       album: item.albumName, duration: item.duration,
-                                       lyrics: .text(text), synced: synced != nil)
-            })
-        } catch {
-            return .failed("连接失败")
-        }
-    }
-
     static func itunes(_ query: String) async -> SourceResult {
         struct Response: Decodable {
             struct Item: Decodable {
@@ -186,6 +173,7 @@ enum OnlineSearch {
         switch candidate.lyrics {
         case .text(let text): return text
         case .kugouID(let id, let key): return await OnlineMedia.kugouDownloadLyrics(id: id, accessKey: key)
+        case .qqMid(let mid): return await OnlineMedia.qqDownloadLyrics(mid: mid)
         case .kugouHash(let hash):
             var comps = URLComponents(string: "https://lyrics.kugou.com/search")!
             comps.queryItems = [

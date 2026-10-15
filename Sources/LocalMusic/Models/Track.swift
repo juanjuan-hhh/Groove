@@ -29,6 +29,29 @@ struct Track: Identifiable, Codable, Hashable {
     var hasKnownArtist: Bool { artist != Track.unknownArtist }
     var hasKnownAlbum: Bool { album != Track.unknownAlbum }
 
+    /// 正在播放页显示的格式信息，例如「FLAC · 16bit · 44.1kHz」「MP3 · 44.1kHz」
+    var formatDescription: String {
+        let ext = url.pathExtension.lowercased()
+        let codec: String
+        switch ext {
+        case "flac": codec = "FLAC"
+        case "mp3": codec = "MP3"
+        case "m4a", "mp4", "alac": codec = isLossless ? "ALAC" : "AAC"
+        case "aac": codec = "AAC"
+        case "wav": codec = "WAV"
+        case "aif", "aiff", "aifc": codec = "AIFF"
+        case "caf": codec = "CAF"
+        default: codec = ext.uppercased()
+        }
+        var parts = [codec]
+        if isLossless && bitDepth > 0 { parts.append("\(bitDepth)bit") }
+        if sampleRate > 0 {
+            let khz = sampleRate / 1000
+            parts.append(khz == khz.rounded() ? "\(Int(khz))kHz" : String(format: "%.1fkHz", khz))
+        }
+        return parts.joined(separator: " · ")
+    }
+
     /// SQ = 无损（16bit / 44.1–48kHz），HR = 高解析（24bit 以上或采样率高于 48kHz）
     var quality: AudioQuality {
         guard isLossless else { return .standard }

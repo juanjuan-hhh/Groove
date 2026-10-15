@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 「联网搜索」面板：同时查 酷狗 / LRCLIB / iTunes，列出所有结果，自己选用哪个封面、哪份歌词
+/// 「联网搜索」面板：同时查 酷狗 / QQ 音乐 / iTunes（iTunes 只有封面），列出所有结果，自己选用哪个封面、哪份歌词
 struct OnlineSearchView: View {
     let track: Track
 
@@ -19,7 +19,10 @@ struct OnlineSearchView: View {
         case empty
     }
 
-    private static let sources: [OnlineCandidate.Source] = [.kugou, .lrclib, .itunes]
+    private static let sources: [OnlineCandidate.Source] = [.kugou, .qq, .itunes]
+
+    /// 点了某个来源的胶囊：只显示这个来源的结果（再点一下显示全部）
+    @State private var filter: OnlineCandidate.Source?
 
     @State private var query = ""
     @State private var states: [OnlineCandidate.Source: SourceState] = [:]
@@ -40,7 +43,7 @@ struct OnlineSearchView: View {
             ScrollView {
                 LazyVStack(spacing: 2) {
                     ForEach(Self.sources, id: \.self) { source in
-                        if case .done(let list) = states[source] {
+                        if filter == nil || filter == source, case .done(let list) = states[source] {
                             ForEach(list) { row($0) }
                         }
                     }
@@ -55,6 +58,20 @@ struct OnlineSearchView: View {
             }
             searchField
         }
+        // 「已换成这份歌词」这类提示：在底部搜索框上方弹出一下
+        .overlay(alignment: .bottom) {
+            if let message {
+                Text(message)
+                    .font(.ui(14, .bold))
+                    .foregroundStyle(Theme.ink)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 10)
+                    .background(Capsule().fill(Theme.sage))
+                    .padding(.bottom, 80)
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: message)
         .frame(width: 600, height: 640)
         .background(Theme.bg)
         .foregroundStyle(Theme.text)
@@ -72,9 +89,6 @@ struct OnlineSearchView: View {
                     .font(.ui(12)).foregroundStyle(Theme.text2).lineLimit(1)
             }
             Spacer()
-            if let message {
-                Text(message).font(.ui(12, .semibold)).foregroundStyle(Theme.sage).lineLimit(1)
-            }
             Button { dismiss() } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 13, weight: .bold))
@@ -90,26 +104,37 @@ struct OnlineSearchView: View {
         .padding(.vertical, 14)
     }
 
-    /// 每个来源的状态：结果数 / 加载中 / 失败
+    /// 每个来源的状态：结果数 / 加载中 / 失败。点一下只看这个来源，再点一下看全部
     private var sourceBar: some View {
         HStack(spacing: 8) {
             ForEach(Self.sources, id: \.self) { source in
                 let state = states[source] ?? .loading
-                HStack(spacing: 6) {
-                    Circle().fill(sourceColor(source)).frame(width: 8, height: 8)
-                    Text(source.rawValue).font(.ui(12, .bold))
-                    switch state {
-                    case .loading:
-                        ProgressView().controlSize(.mini)
-                    case .done(let list):
-                        Text("\(list.count)").font(.ui(12, .bold).monospacedDigit()).foregroundStyle(Theme.text2)
-                    case .failed(let reason):
-                        Text(reason).font(.ui(11)).foregroundStyle(Theme.mustard)
+                let selected = filter == source
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) { filter = selected ? nil : source }
+                } label: {
+                    HStack(spacing: 6) {
+                        Circle().fill(sourceColor(source)).frame(width: 8, height: 8)
+                        Text(source == .itunes ? "iTunes 封面" : source.rawValue).font(.ui(12, .bold))
+                            .foregroundStyle(selected ? Theme.onText : Theme.text)
+                        switch state {
+                        case .loading:
+                            ProgressView().controlSize(.mini)
+                        case .done(let list):
+                            Text("\(list.count)").font(.ui(12, .bold).monospacedDigit())
+                                .foregroundStyle(selected ? Theme.onText.opacity(0.7) : Theme.text2)
+                        case .failed(let reason):
+                            Text(reason).font(.ui(11)).foregroundStyle(Theme.mustard)
+                        }
                     }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 7)
+                    // 选中：奶油色底（和首页分类胶囊一样）
+                    .background(Capsule().fill(selected ? Theme.text : Theme.card))
+                    .contentShape(Capsule())
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(Capsule().fill(Theme.card))
+                .buttonStyle(.plain)
+                .help(selected ? "显示全部来源" : "只看\(source.rawValue)的结果")
             }
             Spacer()
         }
@@ -273,7 +298,8 @@ struct OnlineSearchView: View {
 
     private func search(initial: Bool) {
         if initial {
-            query = track.hasKnownArtist ? "\(track.title) \(track.artist)" : track.title
+            // 只用歌名搜（带上歌手反而容易搜不到）；结果里按「时长一致」等标出最像的
+            query = track.title
         }
         let q = query.trimmingCharacters(in: .whitespaces)
         guard !q.isEmpty else { return }
@@ -287,7 +313,7 @@ struct OnlineSearchView: View {
                 let result: SourceResult
                 switch source {
                 case .kugou: result = await OnlineSearch.kugou(q)
-                case .lrclib: result = await OnlineSearch.lrclib(q)
+                case .qq: result = await OnlineSearch.qq(q)
                 case .itunes: result = await OnlineSearch.itunes(q)
                 }
                 guard id == searchID else { return }
@@ -363,7 +389,7 @@ struct OnlineSearchView: View {
     private func sourceColor(_ source: OnlineCandidate.Source) -> Color {
         switch source {
         case .kugou: return Theme.slate
-        case .lrclib: return Theme.teal
+        case .qq: return Theme.teal
         case .itunes: return Theme.mustard
         }
     }
