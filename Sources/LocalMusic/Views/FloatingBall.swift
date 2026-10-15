@@ -43,7 +43,21 @@ final class FloatingBall {
         (mainWindow ?? NSApp.windows.first { !($0 is NSPanel) && $0.canBecomeMain })?.makeKeyAndOrderFront(nil)
     }
 
-    func rememberPosition() {
+    // MARK: 拖动（按屏幕上的鼠标位置算，窗口跟着鼠标走不会抖）
+
+    @ObservationIgnored private var dragStart: (mouse: NSPoint, origin: NSPoint)?
+
+    func drag() {
+        guard let panel else { return }
+        let mouse = NSEvent.mouseLocation
+        if dragStart == nil { dragStart = (mouse, panel.frame.origin) }
+        guard let start = dragStart else { return }
+        panel.setFrameOrigin(NSPoint(x: start.origin.x + mouse.x - start.mouse.x,
+                                     y: start.origin.y + mouse.y - start.mouse.y))
+    }
+
+    func endDrag() {
+        dragStart = nil
         guard let panel else { return }
         UserDefaults.standard.set(NSStringFromPoint(panel.frame.origin), forKey: Self.originKey)
     }
@@ -118,9 +132,6 @@ struct FloatingBallView: View {
     var body: some View {
         let fraction = player.duration > 0 ? min(1, player.currentTime / player.duration) : 0
         ZStack {
-            // 拖动、双击回主窗口
-            WindowDragArea(onDoubleClick: { FloatingBall.shared.exit() }, onDragEnd: { FloatingBall.shared.rememberPosition() })
-
             Circle().fill(Theme.card)
             TimelineView(.animation(minimumInterval: 1 / 30, paused: !player.isPlaying)) { context in
                 ArtworkView(track: player.current, size: size - ring * 2 - 6, circle: true)
@@ -143,6 +154,13 @@ struct FloatingBallView: View {
         .frame(width: size, height: size)
         .clipShape(Circle())
         .contentShape(Circle())
+        // 按住拖动挪位置，双击回主窗口；上面的按钮优先响应自己的点击
+        .gesture(
+            DragGesture(minimumDistance: 2)
+                .onChanged { _ in FloatingBall.shared.drag() }
+                .onEnded { _ in FloatingBall.shared.endDrag() }
+        )
+        .onTapGesture(count: 2) { FloatingBall.shared.exit() }
         .onChange(of: player.isPlaying, initial: true) { _, playing in
             if playing {
                 spinStart = Date()
