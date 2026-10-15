@@ -33,7 +33,12 @@ final class LibraryStore {
     /// 等待命名的新歌单（里面是要加入的歌曲）
     var playlistDraft: [Track]?
 
+    /// 路径 → 显示的那首歌；被合并掉的重复文件也指向保留的那首
     @ObservationIgnored private var byPath: [String: Track] = [:]
+    /// 扫描到的全部文件（含重复），保存和下次扫描用
+    @ObservationIgnored private var allTracks: [Track] = []
+    /// 保留的那首歌的路径 → 这首歌所有文件的路径（只记有重复的）
+    @ObservationIgnored private var duplicatePaths: [String: [String]] = [:]
     @ObservationIgnored private var rescanPending = false
 
     private struct SavedState: Codable {
@@ -76,7 +81,7 @@ final class LibraryStore {
 
     func removeFolder(_ path: String) {
         folders.removeAll { $0 == path }
-        setTracks(tracks.filter { isInFolders($0.path) })
+        setTracks(allTracks.filter { isInFolders($0.path) })
         saveState()
         saveTracks()
     }
@@ -96,7 +101,7 @@ final class LibraryStore {
         scanned = 0
         scanTotal = 0
         let roots = folders
-        let existing = byPath
+        let existing = Dictionary(allTracks.map { ($0.path, $0) }, uniquingKeysWith: { a, _ in a })
 
         Task {
             let files = await Task.detached(priority: .userInitiated) {
@@ -161,9 +166,27 @@ final class LibraryStore {
         return files
     }
 
+    /// 同一首歌的多个文件只显示音质最好的一个（见 TrackDeduper）
     private func setTracks(_ list: [Track]) {
-        tracks = list
+        allTracks = list
+        let merged = TrackDeduper.merge(list)
+        tracks = merged.kept
+        var paths: [String: [String]] = [:]
+        for (hidden, kept) in merged.alias { paths[kept, default: [kept]].append(hidden) }
+        duplicatePaths = paths
         rebuildGroups()
+        for (hidden, kept) in merged.alias { byPath[hidden] = byPath[kept] }
+    }
+
+    /// 这首歌所有文件的路径（收藏、歌单里存的可能是任何一个）
+    private func allPaths(of track: Track) -> [String] {
+        duplicatePaths[track.path] ?? [track.path]
+    }
+
+    /// 把路径换成实际显示的歌，去掉重复，保持顺序
+    private func resolve(_ paths: [String]) -> [Track] {
+        var seen = Set<String>()
+        return paths.compactMap { byPath[$0] }.filter { seen.insert($0.path).inserted }
     }
 
     // MARK: 排序 / 分组 / 搜索
@@ -275,21 +298,21 @@ final class LibraryStore {
 
     // MARK: 收藏 / 歌单
 
-    func isFavorite(_ track: Track) -> Bool { favorites.contains(track.path) }
+    func isFavorite(_ track: Track) -> Bool { allPaths(of: track).contains(where: favorites.contains) }
 
     func toggleFavorite(_ track: Track) {
-        if favorites.contains(track.path) { favorites.remove(track.path) } else { favorites.insert(track.path) }
+        if isFavorite(track) { favorites.subtract(allPaths(of: track)) } else { favorites.insert(track.path) }
         saveState()
     }
 
     var favoriteTracks: [Track] {
-        sorted(favorites.compactMap { byPath[$0] }, by: .title, ascending: true)
+        sorted(resolve(Array(favorites)), by: .title, ascending: true)
     }
 
     func playlist(_ id: UUID) -> Playlist? { playlists.first { $0.id == id } }
 
     func tracks(in playlist: Playlist) -> [Track] {
-        playlist.paths.compactMap { byPath[$0] }
+        resolve(playlist.paths)
     }
 
     func createPlaylist(name: String, tracks: [Track]) {
@@ -313,7 +336,7 @@ final class LibraryStore {
 
     func add(_ tracks: [Track], to id: UUID) {
         guard let i = playlists.firstIndex(where: { $0.id == id }) else { return }
-        for track in tracks where !playlists[i].paths.contains(track.path) {
+        for track in tracks where !allPaths(of: track).contains(where: playlists[i].paths.contains) {
             playlists[i].paths.append(track.path)
         }
         saveState()
@@ -321,7 +344,8 @@ final class LibraryStore {
 
     func remove(_ track: Track, from id: UUID) {
         guard let i = playlists.firstIndex(where: { $0.id == id }) else { return }
-        playlists[i].paths.removeAll { $0 == track.path }
+        let paths = Set(allPaths(of: track))
+        playlists[i].paths.removeAll { paths.contains($0) }
         saveState()
     }
 
@@ -346,7 +370,7 @@ final class LibraryStore {
     }
 
     private func saveTracks() {
-        if let data = try? JSONEncoder().encode(tracks) {
+        if let data = try? JSONEncoder().encode(allTracks) {
             try? data.write(to: libraryURL, options: .atomic)
         }
     }
