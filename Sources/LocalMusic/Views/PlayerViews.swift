@@ -17,7 +17,11 @@ struct MiniPlayerBar: View {
                         Text(track.title).font(.ui(14, .bold)).foregroundStyle(Theme.text).lineLimit(1)
                         Text(track.artist).font(.ui(12)).foregroundStyle(Theme.text2).lineLimit(1)
                     }
-                    Spacer(minLength: 12)
+                    .frame(maxWidth: 240, alignment: .leading)
+                    .layoutPriority(1)
+                    MiniLyricLine()
+                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, 12)
                     IconButton(systemName: "backward.end.fill", size: 16, help: "上一首") { player.previous() }
                     Button { player.togglePlayPause() } label: {
                         Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
@@ -46,6 +50,40 @@ struct MiniPlayerBar: View {
             .onTapGesture { player.showNowPlaying = true }
             .help("点击打开正在播放")
         }
+    }
+}
+
+/// 底部播放条中间的当前一句歌词（只有带时间轴的歌词才显示），点它直接打开歌词页
+private struct MiniLyricLine: View {
+    @Environment(PlayerController.self) private var player
+
+    var body: some View {
+        let line = currentLine
+        ZStack {
+            if let line {
+                Text(line)
+                    .font(.ui(14, .semibold))
+                    .foregroundStyle(Theme.text2)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .id(line)
+                    .transition(.opacity)
+            }
+        }
+        .frame(minWidth: 0, maxWidth: .infinity)
+        .animation(.easeInOut(duration: 0.25), value: line)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            player.showLyrics = true
+            player.showNowPlaying = true
+        }
+        .help(line == nil ? "" : "点击打开歌词")
+    }
+
+    private var currentLine: String? {
+        guard player.hasSyncedLyrics, let i = player.currentLyricIndex, player.lyrics.indices.contains(i) else { return nil }
+        let text = player.lyrics[i].text
+        return text.isBlank ? nil : text
     }
 }
 
