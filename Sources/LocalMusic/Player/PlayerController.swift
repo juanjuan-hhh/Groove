@@ -55,8 +55,6 @@ final class PlayerController {
 
     @ObservationIgnored private var originalQueue: [Track] = []
     private let player = AVPlayer()
-    /// 给「播放设备」选择按钮用
-    var avPlayer: AVPlayer { player }
     @ObservationIgnored private var timeObserver: Any?
     @ObservationIgnored private var endObserver: NSObjectProtocol?
     @ObservationIgnored private var sleepTimer: Timer?

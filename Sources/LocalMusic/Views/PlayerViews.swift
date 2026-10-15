@@ -6,49 +6,67 @@ import SwiftUI
 struct MiniPlayerBar: View {
     @Environment(PlayerController.self) private var player
     @State private var showQueue = false
+    /// 左边（封面 + 歌名）和右边（播放按钮）各占多宽，用来算中间歌词能用多宽
+    @State private var leftWidth: CGFloat = 0
+    @State private var rightWidth: CGFloat = 0
 
     var body: some View {
         if let track = player.current {
             VStack(spacing: 0) {
                 MiniProgressLine()
                 HStack(spacing: 12) {
-                    ArtworkView(track: track, size: 44)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(track.title).font(.ui(14, .bold)).foregroundStyle(Theme.text).lineLimit(1)
-                        Text(track.artist).font(.ui(12)).foregroundStyle(Theme.text2).lineLimit(1)
-                    }
-                    .frame(maxWidth: 240, alignment: .leading)
-                    .layoutPriority(1)
-                    MiniLyricLine()
-                        .frame(maxWidth: .infinity)
-                        .padding(.horizontal, 12)
-                    IconButton(systemName: "backward.end.fill", size: 16, help: "上一首") { player.previous() }
-                    Button { player.togglePlayPause() } label: {
-                        Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                            .font(.system(size: 16, weight: .bold))
-                            .foregroundStyle(Theme.ink)
-                            .offset(x: player.isPlaying ? 0 : 1)
-                            .frame(width: 38, height: 38)
-                            .background(Circle().fill(Theme.accent))
-                            .contentShape(Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .help(player.isPlaying ? "暂停" : "播放")
-                    IconButton(systemName: "forward.end.fill", size: 16, help: "下一首") { player.next() }
-                    IconButton(systemName: "list.bullet", size: 16, help: "播放队列") { showQueue.toggle() }
-                        .popover(isPresented: $showQueue, arrowEdge: .top) {
-                            QueueView().environment(player)
+                    HStack(spacing: 12) {
+                        ArtworkView(track: track, size: 44)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(track.title).font(.ui(14, .bold)).foregroundStyle(Theme.text).lineLimit(1)
+                            Text(track.artist).font(.ui(12)).foregroundStyle(Theme.text2).lineLimit(1)
                         }
-                    OutputDevicePicker(player: player.avPlayer)
+                        .frame(maxWidth: 240, alignment: .leading)
+                    }
+                    .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { leftWidth = $0 }
+                    Spacer(minLength: 12)
+                    controls
+                        .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { rightWidth = $0 }
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 8)
                 .foregroundStyle(Theme.text)
+                // 歌词放在整条的正中间；左右各让出较宽一边的宽度，保证不压到歌名和按钮
+                .overlay {
+                    GeometryReader { geo in
+                        let side = max(leftWidth, rightWidth) + 20 + 16
+                        MiniLyricLine()
+                            .frame(width: max(0, geo.size.width - side * 2))
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                }
             }
             .background(Theme.card)
             .contentShape(Rectangle())
             .onTapGesture { player.showNowPlaying = true }
             .help("点击打开正在播放")
+        }
+    }
+
+    private var controls: some View {
+        HStack(spacing: 12) {
+            IconButton(systemName: "backward.end.fill", size: 16, help: "上一首") { player.previous() }
+            Button { player.togglePlayPause() } label: {
+                Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(Theme.ink)
+                    .offset(x: player.isPlaying ? 0 : 1)
+                    .frame(width: 38, height: 38)
+                    .background(Circle().fill(Theme.accent))
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .help(player.isPlaying ? "暂停" : "播放")
+            IconButton(systemName: "forward.end.fill", size: 16, help: "下一首") { player.next() }
+            IconButton(systemName: "list.bullet", size: 16, help: "播放队列") { showQueue.toggle() }
+                .popover(isPresented: $showQueue, arrowEdge: .top) {
+                    QueueView().environment(player)
+                }
         }
     }
 }
@@ -73,6 +91,7 @@ private struct MiniLyricLine: View {
         .frame(minWidth: 0, maxWidth: .infinity)
         .animation(.easeInOut(duration: 0.25), value: line)
         .contentShape(Rectangle())
+        .allowsHitTesting(line != nil)   // 没歌词时点这里和点播放条其他地方一样
         .onTapGesture {
             player.showLyrics = true
             player.showNowPlaying = true
@@ -297,8 +316,6 @@ struct NowPlayingView: View {
                 .popover(isPresented: $showQueue) { QueueView().environment(player) }
             Spacer()
             SleepTimerMenu(size: 18)
-            Spacer()
-            OutputDevicePicker(player: player.avPlayer, size: 30)
             Spacer()
         }
         .opacity(0.9)
