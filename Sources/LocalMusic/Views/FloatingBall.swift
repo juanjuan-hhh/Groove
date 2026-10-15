@@ -3,7 +3,7 @@ import SwiftUI
 
 /// 悬浮球模式（像 QQ 音乐的迷你模式）：主窗口收起，屏幕上留一个圆形的小球。
 /// 封面跟着播放慢慢转，外圈是进度环；鼠标移上去出现 上一首 / 播放暂停 / 下一首 / 返回。
-/// 拖动可以挪位置（会记住），双击或点程序坞图标回到主窗口。
+/// 拖动可以挪位置（会记住），拖到左右边缘会贴边并藏起一半；双击或点程序坞图标回到主窗口。
 @MainActor
 @Observable
 final class FloatingBall {
@@ -33,11 +33,17 @@ final class FloatingBall {
         panel.orderFrontRegardless()
         panel.invalidateShadow()
         mainWindow?.orderOut(nil)
+        tucked = false
+        updateDock(for: panel.frame)
+        scheduleTuck(after: 1.5)
     }
 
     func exit() {
         guard let panel, panel.isVisible else { return }
-        UserDefaults.standard.set(NSStringFromPoint(panel.frame.origin), forKey: Self.originKey)
+        cancelTuck()
+        UserDefaults.standard.set(NSStringFromPoint((tucked ? shownFrame : nil)?.origin ?? panel.frame.origin),
+                                  forKey: Self.originKey)
+        tucked = false
         panel.orderOut(nil)
         NSApp.activate(ignoringOtherApps: true)
         (mainWindow ?? NSApp.windows.first { !($0 is NSPanel) && $0.canBecomeMain })?.makeKeyAndOrderFront(nil)
@@ -50,7 +56,12 @@ final class FloatingBall {
     func drag() {
         guard let panel else { return }
         let mouse = NSEvent.mouseLocation
-        if dragStart == nil { dragStart = (mouse, panel.frame.origin) }
+        if dragStart == nil {
+            dragStart = (mouse, panel.frame.origin)
+            cancelTuck()
+            dock = nil
+            tucked = false
+        }
         guard let start = dragStart else { return }
         panel.setFrameOrigin(NSPoint(x: start.origin.x + mouse.x - start.mouse.x,
                                      y: start.origin.y + mouse.y - start.mouse.y))
@@ -68,6 +79,79 @@ final class FloatingBall {
             }
         }
         UserDefaults.standard.set(NSStringFromPoint(target.origin), forKey: Self.originKey)
+        updateDock(for: target)
+        if !hovering { scheduleTuck(after: 0.8) }
+    }
+
+    // MARK: 贴边藏一半（像 QQ 音乐）：贴在左右边时，鼠标离开一会儿就滑出去一半，移上去再滑回来
+
+    private enum DockEdge { case left, right }
+
+    @ObservationIgnored private var dock: DockEdge?
+    /// 贴边时完整露出来的位置
+    @ObservationIgnored private var shownFrame: NSRect?
+    @ObservationIgnored private var tucked = false
+    @ObservationIgnored private var tuckTask: Task<Void, Never>?
+
+    func pointerEntered() {
+        withAnimation(.easeInOut(duration: 0.15)) { hovering = true }
+        cancelTuck()
+        if tucked { slide(to: shownFrame, tucked: false) }
+    }
+
+    func pointerExited() {
+        withAnimation(.easeInOut(duration: 0.15)) { hovering = false }
+        if dragStart == nil { scheduleTuck(after: 0.8) }
+    }
+
+    /// 贴在左 / 右边、而且那一侧没有别的显示器时，才算「贴边」
+    private func updateDock(for frame: NSRect) {
+        dock = nil
+        shownFrame = frame
+        guard let screen = panel?.screen ?? NSScreen.main else { return }
+        let lo = screen.visibleFrame.insetBy(dx: Self.edgeGap, dy: Self.edgeGap)
+        let mid = frame.midY
+        func neighbor(atX x: CGFloat) -> Bool {
+            NSScreen.screens.contains { $0 != screen && $0.frame.contains(NSPoint(x: x, y: mid)) }
+        }
+        if abs(frame.minX - lo.minX) < 1, !neighbor(atX: screen.frame.minX - 2) {
+            dock = .left
+        } else if abs(frame.maxX - lo.maxX) < 1, !neighbor(atX: screen.frame.maxX + 2) {
+            dock = .right
+        }
+    }
+
+    private func scheduleTuck(after seconds: Double) {
+        cancelTuck()
+        guard dock != nil, !tucked else { return }
+        tuckTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(seconds))
+            guard !Task.isCancelled, let self, !self.hovering, self.dragStart == nil else { return }
+            self.tuck()
+        }
+    }
+
+    private func cancelTuck() {
+        tuckTask?.cancel()
+        tuckTask = nil
+    }
+
+    /// 滑出去一半，只露半个球
+    private func tuck() {
+        guard let dock, var frame = shownFrame, let screen = panel?.screen ?? NSScreen.main else { return }
+        let edge = screen.visibleFrame
+        frame.origin.x = dock == .left ? edge.minX - frame.width / 2 : edge.maxX - frame.width / 2
+        slide(to: frame, tucked: true)
+    }
+
+    private func slide(to frame: NSRect?, tucked: Bool) {
+        guard let panel, let frame else { return }
+        self.tucked = tucked
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.22
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            panel.animator().setFrame(frame, display: true)
+        }
     }
 
     /// 离屏幕边缘（菜单栏下、程序坞以外）不到这么远就贴过去
@@ -134,12 +218,12 @@ private final class FirstClickHostingView<Content: View>: NSHostingView<Content>
 
     override func mouseEntered(with event: NSEvent) {
         super.mouseEntered(with: event)
-        withAnimation(.easeInOut(duration: 0.15)) { FloatingBall.shared.hovering = true }
+        FloatingBall.shared.pointerEntered()
     }
 
     override func mouseExited(with event: NSEvent) {
         super.mouseExited(with: event)
-        withAnimation(.easeInOut(duration: 0.15)) { FloatingBall.shared.hovering = false }
+        FloatingBall.shared.pointerExited()
     }
 }
 
