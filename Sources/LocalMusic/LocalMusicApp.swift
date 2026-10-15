@@ -48,6 +48,9 @@ struct LocalMusicApp: App {
                 }
                 .keyboardShortcut("l")
                 .disabled(player.current == nil)
+                Button("切换到悬浮球 / 返回主窗口") { FloatingBall.shared.toggle(player: player) }
+                    .keyboardShortcut("m", modifiers: [.command, .shift])
+                    .disabled(player.current == nil)
             }
         }
     }
@@ -86,4 +89,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // 关掉窗口后音乐继续播放，点 Dock 图标可以重新打开窗口
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    // 悬浮球模式下点 Dock 图标：回到主窗口
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if FloatingBall.shared.isShown {
+            FloatingBall.shared.exit()
+            return false
+        }
+        return true
+    }
 }

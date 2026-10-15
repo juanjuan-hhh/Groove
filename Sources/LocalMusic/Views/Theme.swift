@@ -195,17 +195,36 @@ private struct ShineBand: View {
 
 /// 放在顶栏背后：空白处可以拖动窗口，双击铺满屏幕 / 恢复（见 WindowFill）。按钮、搜索框在它上面，不受影响
 struct WindowDragArea: NSViewRepresentable {
+    /// 不传就按标题栏的规则：铺满 / 恢复（见 WindowFill）
+    var onDoubleClick: (() -> Void)?
+    /// 拖完松手时（悬浮球用来记住位置）
+    var onDragEnd: (() -> Void)?
+
     func makeNSView(context: Context) -> NSView { DragView() }
-    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        guard let view = nsView as? DragView else { return }
+        view.onDoubleClick = onDoubleClick
+        view.onDragEnd = onDragEnd
+    }
 
     private final class DragView: NSView {
+        var onDoubleClick: (() -> Void)?
+        var onDragEnd: (() -> Void)?
+
         override var mouseDownCanMoveWindow: Bool { true }
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
         override func mouseDown(with event: NSEvent) {
             if event.clickCount == 2 {
-                if let window { WindowFill.handleDoubleClick(window) }
+                if let onDoubleClick {
+                    onDoubleClick()
+                } else if let window {
+                    WindowFill.handleDoubleClick(window)
+                }
             } else {
-                window?.performDrag(with: event)
+                window?.performDrag(with: event)   // 拖动结束（松开鼠标）才返回
+                onDragEnd?()
             }
         }
     }

@@ -86,6 +86,7 @@ struct ContentView: View {
 struct TopBar: View {
     @Binding var tab: LibraryTab
     @Binding var searchText: String
+    @Environment(PlayerController.self) private var player
     /// false 时搜索框换成静态文字（被正在播放页盖住时）
     var searchActive = true
     @Environment(LibraryStore.self) private var library
@@ -146,6 +147,17 @@ struct TopBar: View {
             .frame(width: 200)
 
             SleepTimerMenu(size: 13)
+
+            Button { FloatingBall.shared.enter(player: player) } label: {
+                Image(systemName: "circle.circle")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Theme.text2)
+                    .frame(width: 22, height: 22)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(player.current == nil)
+            .help(player.current == nil ? "先播放一首歌再切换到悬浮球" : "切换到悬浮球（⇧⌘M）")
 
             Menu {
                 Button("添加音乐文件夹…") { library.addFolder() }
