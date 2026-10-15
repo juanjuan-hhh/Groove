@@ -10,6 +10,15 @@ struct ArtworkView: View {
 
     @State private var image: NSImage?
 
+    init(track: Track?, size: CGFloat, cornerRadius: CGFloat = Theme.artRadius, circle: Bool = false) {
+        self.track = track
+        self.size = size
+        self.cornerRadius = cornerRadius
+        self.circle = circle
+        // 内存里已有的封面直接用，避免打开正在播放页时封面晚一拍「跳」出来
+        _image = State(initialValue: track.flatMap { ArtworkProvider.shared.cachedImage(for: $0, size: size) })
+    }
+
     var body: some View {
         let provider = ArtworkProvider.shared
         let taskID = "\(track?.path ?? "")#\(provider.revision)"

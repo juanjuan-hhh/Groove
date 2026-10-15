@@ -48,7 +48,7 @@ struct ContentView: View {
                     .zIndex(1)
             }
         }
-        .animation(.easeInOut(duration: 0.28), value: player.showNowPlaying)
+        .animation(.spring(response: 0.34, dampingFraction: 0.92), value: player.showNowPlaying)
         // 搜索框是 AppKit 输入框，被正在播放页盖住后鼠标经过还是会变成输入光标（I 形）。
         // 滑入动画结束后把它换成一样的静态文字，收起时马上换回来。
         .onChange(of: player.showNowPlaying) { _, showing in
@@ -57,7 +57,7 @@ struct ContentView: View {
                 return
             }
             Task {
-                try? await Task.sleep(for: .milliseconds(320))
+                try? await Task.sleep(for: .milliseconds(450))
                 if player.showNowPlaying { libraryCovered = true }
             }
         }

@@ -17,9 +17,19 @@ final class ArtworkProvider {
 
     private struct Decoded: @unchecked Sendable { let image: CGImage }
 
+    /// 已经在内存里的封面（不读文件、不等待）。界面第一帧就能直接显示，不会先空一下再跳出来
+    func cachedImage(for track: Track, size: CGFloat) -> NSImage? {
+        cache.object(forKey: Self.key(track, size))
+    }
+
+    private static func key(_ track: Track, _ size: CGFloat) -> NSString {
+        let bucket = buckets.first { size <= $0 } ?? buckets.last!
+        return "\(track.path)#\(Int(bucket))" as NSString
+    }
+
     func image(for track: Track, size: CGFloat) async -> NSImage? {
         let bucket = Self.buckets.first { size <= $0 } ?? Self.buckets.last!
-        let key = "\(track.path)#\(Int(bucket))" as NSString
+        let key = Self.key(track, size)
         if let image = cache.object(forKey: key) { return image }
         if missing.contains(track.path) { return nil }
 
