@@ -45,8 +45,6 @@ dot(300, at: 250, size: 18, c(0xFFF6E6, 0.9))
 // 内圈：石板蓝
 ctx.setStrokeColor(c(0x59718A)); ctx.setLineWidth(20)
 ctx.addEllipse(in: CGRect(x: center.x - 222, y: center.y - 222, width: 444, height: 444)); ctx.strokePath()
-// 内圈上的芥末黄小点（轨道表盘的指针点）
-dot(222, at: 128, size: 44, c(0xD4A72C))
 
 // 中间：奶油色音符
 let config = NSImage.SymbolConfiguration(pointSize: 230, weight: .heavy)
