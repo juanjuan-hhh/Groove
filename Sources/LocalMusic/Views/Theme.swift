@@ -17,6 +17,7 @@ enum Theme {
     static let text3 = dynamic(0x5C574F, 0xA9A296)    // 更淡的文字
     static let ink = Color(hex: 0x1C1D21)             // 浅色胶囊上的深色字（两版一样）
     static let cream = Color(hex: 0xF2E9D8)           // 深色胶囊（石板蓝、青绿）上的浅色字（两版一样）
+    static let onText = dynamic(0x1C1D21, 0xFFFFFF)   // 用正文色当底色时上面的字（选中的分类按钮）
 
     // MARK: 五种颜色（浅色版稍微深一点，白底上看得清）
 

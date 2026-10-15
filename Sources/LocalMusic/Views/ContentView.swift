@@ -104,7 +104,7 @@ struct TopBar: View {
                     } label: {
                         Text(item.rawValue)
                             .font(.ui(14, selected ? .bold : .semibold))
-                            .foregroundStyle(selected ? Theme.ink : Theme.text2)
+                            .foregroundStyle(selected ? Theme.onText : Theme.text2)
                             .padding(.horizontal, 14)
                             .padding(.vertical, 6)
                             .background(Capsule().fill(selected ? Theme.text : .clear))
