@@ -148,6 +148,8 @@ struct TopBar: View {
 
             SleepTimerMenu(size: 13)
 
+            AppearanceToggle()
+
             Menu {
                 Button("添加音乐文件夹…") { library.addFolder() }
                 Button("重新扫描") { library.rescan() }
@@ -177,6 +179,36 @@ struct TopBar: View {
         .padding(.horizontal, 24)
         .padding(.vertical, 9)
         .background(WindowDragArea())
+    }
+}
+
+/// 顶栏的深色 / 浅色切换按钮（在定时和设置中间）。跟随系统时点一下切到和现在相反的那种
+private struct AppearanceToggle: View {
+    @AppStorage(AppearanceMode.key) private var mode: AppearanceMode = .dark
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                mode = scheme == .dark ? .light : .dark
+            }
+        } label: {
+            Image(systemName: icon)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Theme.accent)
+                .frame(width: 22, height: 22)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(scheme == .dark ? "切换到浅色" : "切换到深色")
+    }
+
+    private var icon: String {
+        switch mode {
+        case .dark: return "moon.fill"
+        case .light: return "sun.max.fill"
+        case .system: return "circle.lefthalf.filled"
+        }
     }
 }
 
