@@ -13,6 +13,8 @@ struct LocalMusicApp: App {
                 .environment(library)
                 .environment(player)
                 .frame(minWidth: 720, minHeight: 560)
+                .preferredColorScheme(.dark)
+                .tint(Theme.accent)
                 .onAppear { appDelegate.player = player }
         }
         .defaultSize(width: 980, height: 740)
@@ -56,6 +58,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
+        // 和 Porthole 一样只用深色：菜单、弹窗、播放队列浮窗也都是深色
+        NSApp.appearance = NSAppearance(named: .darkAqua)
         NSApp.activate(ignoringOtherApps: true)
 
         // 空格键播放/暂停（在搜索框里打字时不拦截）

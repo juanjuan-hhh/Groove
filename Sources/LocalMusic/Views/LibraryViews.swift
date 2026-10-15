@@ -12,12 +12,11 @@ struct AlbumsView: View {
                     ForEach(library.albums) { album in
                         NavigationLink(value: album) {
                             VStack(alignment: .leading, spacing: 6) {
-                                ArtworkView(track: album.tracks.first, size: 150, cornerRadius: 10)
-                                    .shadow(color: .black.opacity(0.12), radius: 6, y: 3)
-                                Text(album.name).font(.system(size: 13, weight: .medium)).lineLimit(1)
+                                ArtworkView(track: album.tracks.first, size: 150, cornerRadius: 14)
+                                Text(album.name).font(.ui(13, .semibold)).foregroundStyle(Theme.text).lineLimit(1)
                                 Text("\(album.subtitle) · \(album.tracks.count) 首")
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(.secondary)
+                                    .font(.ui(11))
+                                    .foregroundStyle(Theme.text2)
                                     .lineLimit(1)
                             }
                             .frame(width: 150)
@@ -71,9 +70,10 @@ struct FoldersView: View {
                         NavigationLink(value: folder) {
                             GroupRow(title: folder.name, subtitle: "\(folder.tracks.count) 首歌曲 · \(folder.subtitle)") {
                                 Image(systemName: "folder.fill")
-                                    .font(.system(size: 24))
-                                    .foregroundStyle(Color.accentColor)
+                                    .font(.system(size: 20))
+                                    .foregroundStyle(Theme.ink)
                                     .frame(width: 46, height: 46)
+                                    .background(RoundedRectangle(cornerRadius: Theme.artRadius, style: .continuous).fill(Theme.mustard))
                             }
                         }
                         .buttonStyle(.plain)
@@ -93,15 +93,15 @@ struct GroupDetailView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 18) {
-                ArtworkView(track: group.tracks.first, size: 96, cornerRadius: 10, circle: circle)
+                ArtworkView(track: group.tracks.first, size: 96, cornerRadius: 14, circle: circle)
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(group.name).font(.title2.weight(.bold)).lineLimit(2)
-                    Text(group.subtitle).foregroundStyle(.secondary).lineLimit(1)
+                    Text(group.name).font(.ui(22, .bold)).foregroundStyle(Theme.text).lineLimit(2)
+                    Text(group.subtitle).font(.ui(13)).foregroundStyle(Theme.text2).lineLimit(1)
                 }
                 Spacer()
             }
             .padding(24)
-            Divider()
+            ThemeDivider()
             SongListView(tracks: group.tracks)
         }
         .navigationTitle(group.name)
@@ -126,7 +126,7 @@ struct PlaylistsView: View {
                 LazyVStack(spacing: 0) {
                     NavigationLink(value: PlaylistRoute.favorites) {
                         GroupRow(title: "我的收藏", subtitle: "\(library.favorites.count) 首歌曲") {
-                            iconTile("heart.fill", .pink)
+                            iconTile("heart.fill", Theme.terra, Theme.ink)
                         }
                     }
                     .buttonStyle(.plain)
@@ -137,7 +137,7 @@ struct PlaylistsView: View {
                                 if let first = library.tracks(in: playlist).first {
                                     ArtworkView(track: first, size: 46)
                                 } else {
-                                    iconTile("music.note.list", .accentColor)
+                                    iconTile("music.note.list", Theme.slate, Theme.text)
                                 }
                             }
                         }
@@ -155,11 +155,12 @@ struct PlaylistsView: View {
                         library.playlistDraft = []
                     } label: {
                         Label("新建歌单", systemImage: "plus")
+                            .font(.ui(14, .bold))
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(Theme.accent)
                     .padding(.horizontal, 24)
                     .padding(.vertical, 14)
                 }
@@ -173,7 +174,7 @@ struct PlaylistsView: View {
                     if let playlist = library.playlist(id) {
                         PlaylistDetailView(title: playlist.name, tracks: library.tracks(in: playlist), playlistID: id)
                     } else {
-                        Text("歌单已删除").foregroundStyle(.secondary)
+                        Text("歌单已删除").foregroundStyle(Theme.text2)
                     }
                 }
             }
@@ -190,12 +191,13 @@ struct PlaylistsView: View {
         }
     }
 
-    private func iconTile(_ name: String, _ color: Color) -> some View {
+    /// 纯色方块图标；浅色底（赭橙）配深色图标，深色底（石板蓝）配奶油色
+    private func iconTile(_ name: String, _ color: Color, _ foreground: Color) -> some View {
         Image(systemName: name)
             .font(.system(size: 20))
-            .foregroundStyle(.white)
+            .foregroundStyle(foreground)
             .frame(width: 46, height: 46)
-            .background(RoundedRectangle(cornerRadius: 6).fill(color.gradient))
+            .background(RoundedRectangle(cornerRadius: Theme.artRadius, style: .continuous).fill(color))
     }
 }
 
@@ -207,12 +209,12 @@ struct PlaylistDetailView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text(title).font(.title2.weight(.bold))
+                Text(title).font(.ui(22, .bold)).foregroundStyle(Theme.text)
                 Spacer()
             }
             .padding(.horizontal, 24)
             .padding(.vertical, 16)
-            Divider()
+            ThemeDivider()
             SongListView(tracks: tracks, playlistID: playlistID)
         }
         .navigationTitle(title)

@@ -20,7 +20,7 @@ struct ContentView: View {
         ZStack {
             VStack(spacing: 0) {
                 TopBar(tab: $tab, searchText: $searchText)
-                Divider()
+                ThemeDivider()
                 Group {
                     if library.folders.isEmpty {
                         EmptyLibraryView()
@@ -47,6 +47,9 @@ struct ContentView: View {
             }
         }
         .animation(.easeInOut(duration: 0.28), value: player.showNowPlaying)
+        .foregroundStyle(Theme.text)
+        .background(Theme.bg)
+        .toolbarBackground(Theme.bg, for: .windowToolbar)
         .alert("新建歌单", isPresented: Binding(
             get: { library.playlistDraft != nil },
             set: { if !$0 { library.playlistDraft = nil } }
@@ -68,37 +71,49 @@ struct TopBar: View {
     @AppStorage(AppSettings.autoFetchKey) private var autoFetch = true
 
     var body: some View {
-        HStack(spacing: 26) {
-            ForEach(LibraryTab.allCases) { item in
-                Button {
-                    tab = item
-                    searchText = ""
-                } label: {
-                    Text(item.rawValue)
-                        .font(.system(size: 16, weight: tab == item && searchText.isEmpty ? .bold : .regular))
-                        .foregroundStyle(tab == item && searchText.isEmpty ? Color.primary : Color.secondary)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
-
-            Spacer(minLength: 12)
-
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                TextField("搜索歌名、歌手、拼音", text: $searchText)
-                    .textFieldStyle(.plain)
-                if !searchText.isEmpty {
-                    Button { searchText = "" } label: {
-                        Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+        HStack(spacing: 18) {
+            // 分段胶囊：选中的是奶油色底 + 深色字（Porthole 网页的语言切换按钮）
+            HStack(spacing: 4) {
+                ForEach(LibraryTab.allCases) { item in
+                    let selected = tab == item && searchText.isEmpty
+                    Button {
+                        tab = item
+                        searchText = ""
+                    } label: {
+                        Text(item.rawValue)
+                            .font(.ui(14, selected ? .bold : .semibold))
+                            .foregroundStyle(selected ? Theme.ink : Theme.text2)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 6)
+                            .background(Capsule().fill(selected ? Theme.text : .clear))
+                            .contentShape(Capsule())
                     }
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.06)))
-            .frame(width: 220)
+            .padding(4)
+            .background(Capsule().fill(Theme.card))
+            .animation(.easeInOut(duration: 0.15), value: tab)
+
+            Spacer(minLength: 12)
+
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass").foregroundStyle(Theme.text2)
+                TextField("搜索歌名、歌手、拼音", text: $searchText)
+                    .textFieldStyle(.plain)
+                    .font(.ui(13))
+                if !searchText.isEmpty {
+                    Button { searchText = "" } label: {
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(Theme.text2)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(Capsule().fill(Theme.card))
+            .overlay(Capsule().stroke(searchText.isEmpty ? Theme.line : Theme.accent, lineWidth: 1))
+            .frame(width: 230)
 
             SleepTimerMenu()
 
@@ -117,6 +132,7 @@ struct TopBar: View {
                 Toggle("自动联网获取缺少的封面和歌词", isOn: $autoFetch)
             } label: {
                 Image(systemName: "gearshape").font(.system(size: 16))
+                    .foregroundStyle(Theme.text2)
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
@@ -135,13 +151,20 @@ struct EmptyLibraryView: View {
         VStack(spacing: 16) {
             Image(systemName: "music.note.house")
                 .font(.system(size: 56))
-                .foregroundStyle(.secondary)
-            Text("还没有添加音乐").font(.title2.weight(.semibold))
+                .foregroundStyle(Theme.text3)
+            Text("还没有添加音乐").font(.ui(22, .bold))
             Text("选择存放音乐的文件夹，会自动扫描里面所有的歌曲（包括子文件夹）。")
-                .foregroundStyle(.secondary)
-            Button("添加音乐文件夹") { library.addFolder() }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
+                .font(.ui(14))
+                .foregroundStyle(Theme.text2)
+            Button { library.addFolder() } label: {
+                Text("添加音乐文件夹")
+                    .font(.ui(15, .bold))
+                    .foregroundStyle(Theme.ink)
+                    .padding(.horizontal, 22)
+                    .padding(.vertical, 11)
+                    .background(Capsule().fill(Theme.accent))
+            }
+            .buttonStyle(.plain)
         }
         .padding(40)
     }

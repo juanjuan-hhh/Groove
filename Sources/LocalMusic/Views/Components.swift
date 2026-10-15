@@ -1,11 +1,11 @@
 import AppKit
 import SwiftUI
 
-/// 封面图。没有封面时显示灰色占位图。
+/// 封面图。没有封面时显示深色占位图。
 struct ArtworkView: View {
     let track: Track?
     let size: CGFloat
-    var cornerRadius: CGFloat = 6
+    var cornerRadius: CGFloat = Theme.artRadius
     var circle = false
 
     @State private var image: NSImage?
@@ -19,10 +19,10 @@ struct ArtworkView: View {
                     .resizable()
                     .scaledToFill()
             } else {
-                LinearGradient(colors: [Color(white: 0.55), Color(white: 0.35)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                Theme.surface
                 Image(systemName: "music.note")
                     .font(.system(size: size * 0.35, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.7))
+                    .foregroundStyle(Theme.text3)
             }
         }
         .frame(width: size, height: size)
@@ -37,25 +37,20 @@ struct ArtworkView: View {
     }
 }
 
-/// SQ / HR 音质标签
+/// SQ / HR 音质标签：纯色小胶囊，SQ 赭橙、HR 芥末黄
 struct QualityBadge: View {
     let quality: AudioQuality
 
     var body: some View {
         switch quality {
-        case .sq: badge("SQ", Color(red: 0.95, green: 0.42, blue: 0.30))
-        case .hr: badge("HR", Color(red: 0.93, green: 0.66, blue: 0.13))
+        case .sq: badge("SQ", Theme.terra)
+        case .hr: badge("HR", Theme.mustard)
         case .standard: EmptyView()
         }
     }
 
     private func badge(_ text: String, _ color: Color) -> some View {
-        Text(text)
-            .font(.system(size: 9, weight: .bold, design: .rounded))
-            .foregroundStyle(color)
-            .padding(.horizontal, 3)
-            .padding(.vertical, 1)
-            .overlay(RoundedRectangle(cornerRadius: 3).stroke(color, lineWidth: 1))
+        ChipText(text: text, color: color, font: .ui(9, .heavy), hPad: 5, vPad: 1)
     }
 }
 
@@ -103,6 +98,7 @@ struct SleepTimerMenu: View {
         } label: {
             Image(systemName: player.sleepActive ? "timer.circle.fill" : "timer")
                 .font(.system(size: size))
+                .foregroundStyle(player.sleepActive ? Theme.accent : Theme.text2)
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
@@ -153,15 +149,16 @@ struct GroupRow<Leading: View>: View {
         HStack(spacing: 12) {
             leading()
             VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(.system(size: 14)).lineLimit(1)
-                Text(subtitle).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
+                Text(title).font(.ui(14, .medium)).foregroundStyle(Theme.text).lineLimit(1)
+                Text(subtitle).font(.ui(12)).foregroundStyle(Theme.text2).lineLimit(1)
             }
             Spacer()
-            Image(systemName: "chevron.right").font(.system(size: 12)).foregroundStyle(.tertiary)
+            Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.text3)
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 8)
-        .background(RoundedRectangle(cornerRadius: 8).fill(hovering ? Color.primary.opacity(0.06) : .clear).padding(.horizontal, 8))
+        .background(RoundedRectangle(cornerRadius: Theme.rowRadius, style: .continuous)
+            .fill(hovering ? Theme.surface : .clear).padding(.horizontal, 8))
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
     }

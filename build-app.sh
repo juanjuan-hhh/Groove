@@ -42,11 +42,16 @@ fi
 rm -rf "$INSTALLED"
 ditto "$APP" "$INSTALLED"
 touch "$INSTALLED"   # 让 Finder / Dock 刷新图标
+# 先登记新版本，否则刚复制完马上打开可能报 -600
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$INSTALLED" >/dev/null 2>&1 || true
 
 echo ""
 echo "完成：已安装到 $INSTALLED"
 echo "（build 文件夹里也留了一份：$(pwd)/$APP）"
 if [[ $WAS_RUNNING == 1 ]]; then
-  open "$INSTALLED"
+  for _ in 1 2 3; do
+    open "$INSTALLED" 2>/dev/null && break
+    sleep 1
+  done
   echo "旧版本刚才在运行，已经退出并打开了新版本。"
 fi

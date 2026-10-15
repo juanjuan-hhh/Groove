@@ -12,15 +12,24 @@ struct MiniPlayerBar: View {
             VStack(spacing: 0) {
                 MiniProgressLine()
                 HStack(spacing: 12) {
-                    ArtworkView(track: track, size: 44, cornerRadius: 6)
+                    ArtworkView(track: track, size: 44)
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(track.title).font(.system(size: 14, weight: .medium)).lineLimit(1)
-                        Text(track.artist).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
+                        Text(track.title).font(.ui(14, .bold)).foregroundStyle(Theme.text).lineLimit(1)
+                        Text(track.artist).font(.ui(12)).foregroundStyle(Theme.text2).lineLimit(1)
                     }
                     Spacer(minLength: 12)
                     IconButton(systemName: "backward.end.fill", size: 16, help: "上一首") { player.previous() }
-                    IconButton(systemName: player.isPlaying ? "pause.fill" : "play.fill", size: 22,
-                               help: player.isPlaying ? "暂停" : "播放") { player.togglePlayPause() }
+                    Button { player.togglePlayPause() } label: {
+                        Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(Theme.ink)
+                            .offset(x: player.isPlaying ? 0 : 1)
+                            .frame(width: 38, height: 38)
+                            .background(Circle().fill(Theme.accent))
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .help(player.isPlaying ? "暂停" : "播放")
                     IconButton(systemName: "forward.end.fill", size: 16, help: "下一首") { player.next() }
                     IconButton(systemName: "list.bullet", size: 16, help: "播放队列") { showQueue.toggle() }
                         .popover(isPresented: $showQueue, arrowEdge: .top) {
@@ -29,8 +38,9 @@ struct MiniPlayerBar: View {
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 8)
+                .foregroundStyle(Theme.text)
             }
-            .background(.bar)
+            .background(Theme.card)
             .contentShape(Rectangle())
             .onTapGesture { player.showNowPlaying = true }
             .help("点击打开正在播放")
@@ -45,8 +55,8 @@ private struct MiniProgressLine: View {
         GeometryReader { geo in
             let fraction = player.duration > 0 ? min(1, player.currentTime / player.duration) : 0
             ZStack(alignment: .leading) {
-                Rectangle().fill(Color.primary.opacity(0.08))
-                Rectangle().fill(Color.accentColor).frame(width: geo.size.width * fraction)
+                Rectangle().fill(Theme.track)
+                Rectangle().fill(Theme.accent).frame(width: geo.size.width * fraction)
             }
         }
         .frame(height: 2)
@@ -61,12 +71,12 @@ struct QueueView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text("播放队列").font(.headline)
-                Text("\(player.queue.count) 首").foregroundStyle(.secondary)
+                ChipText(text: "播放队列", color: Theme.accent, font: .ui(13, .bold), hPad: 12, vPad: 4)
+                Text("\(player.queue.count) 首").font(.ui(13)).foregroundStyle(Theme.text2)
                 Spacer()
             }
             .padding(12)
-            Divider()
+            ThemeDivider()
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 0) {
@@ -74,19 +84,20 @@ struct QueueView: View {
                             HStack(spacing: 8) {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(track.title)
+                                        .font(.ui(13, i == player.index ? .bold : .medium))
                                         .lineLimit(1)
-                                        .foregroundStyle(i == player.index ? Color.accentColor : Color.primary)
-                                    Text(track.artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                        .foregroundStyle(i == player.index ? Theme.accent : Theme.text)
+                                    Text(track.artist).font(.ui(11)).foregroundStyle(Theme.text2).lineLimit(1)
                                 }
                                 Spacer()
                                 if i == player.index {
-                                    Image(systemName: "speaker.wave.2.fill").font(.caption).foregroundStyle(Color.accentColor)
+                                    Image(systemName: "speaker.wave.2.fill").font(.caption).foregroundStyle(Theme.accent)
                                 } else {
                                     Button { player.removeFromQueue(at: i) } label: {
                                         Image(systemName: "xmark").font(.caption)
                                     }
                                     .buttonStyle(.plain)
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(Theme.text3)
                                     .help("从队列中移除")
                                 }
                             }
@@ -102,6 +113,7 @@ struct QueueView: View {
             }
         }
         .frame(width: 320, height: 420)
+        .background(Theme.card)
     }
 }
 
@@ -136,8 +148,8 @@ struct NowPlayingView: View {
                 .frame(maxWidth: .infinity)
             }
         }
-        .foregroundStyle(.white)
-        .background(Color(white: 0.12))
+        .foregroundStyle(Theme.text)
+        .background(Theme.bg)
         .background {
             Button("") { player.showNowPlaying = false }
                 .keyboardShortcut(.cancelAction)
@@ -147,13 +159,14 @@ struct NowPlayingView: View {
 
     private func background(_ size: CGSize) -> some View {
         let side = max(size.width, size.height)
+        // 黑底为主，只透出一点模糊的封面颜色
         return ZStack {
-            Color(white: 0.18)
+            Theme.bg
             ArtworkView(track: player.current, size: 320, cornerRadius: 0)
                 .scaleEffect(side / 320 * 1.4)
-                .blur(radius: 60)
-                .opacity(0.85)
-            LinearGradient(colors: [.black.opacity(0.2), .black.opacity(0.55)], startPoint: .top, endPoint: .bottom)
+                .blur(radius: 70)
+                .opacity(0.4)
+            LinearGradient(colors: [.black.opacity(0.35), .black.opacity(0.85)], startPoint: .top, endPoint: .bottom)
         }
         .frame(width: size.width, height: size.height)
         .clipped()
@@ -165,13 +178,13 @@ struct NowPlayingView: View {
             Spacer()
             VStack(spacing: 4) {
                 Text(player.current?.title ?? "")
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.ui(16, .bold))
                     .lineLimit(1)
                 HStack(spacing: 6) {
                     if let track = player.current { QualityBadge(quality: track.quality) }
                     Text(player.current?.artist ?? "")
-                        .font(.system(size: 13))
-                        .opacity(0.85)
+                        .font(.ui(13))
+                        .foregroundStyle(Theme.text2)
                         .lineLimit(1)
                 }
             }
@@ -203,8 +216,8 @@ struct NowPlayingView: View {
         let side = max(150, min(340, size.height - 420, size.width - 96))
         return VStack(spacing: 30) {
             ArtworkView(track: player.current, size: side, circle: true)
-                .overlay(Circle().stroke(.white.opacity(0.15), lineWidth: 1))
-                .shadow(color: .black.opacity(0.35), radius: 24, y: 10)
+                .overlay { ProgressRing() }
+                .shadow(color: .black.opacity(0.5), radius: 24, y: 10)
                 .onTapGesture { player.showLyrics = true }
             CurrentLyricLine()
                 .onTapGesture { player.showLyrics = true }
@@ -219,15 +232,17 @@ struct NowPlayingView: View {
             IconButton(systemName: isFavorite ? "heart.fill" : "heart", size: 18, help: isFavorite ? "取消收藏" : "收藏") {
                 if let track { library.toggleFavorite(track) }
             }
-            .foregroundStyle(isFavorite ? Color.pink : Color.white)
+            .foregroundStyle(isFavorite ? Theme.accent : Theme.text)
             Spacer()
             IconButton(systemName: "shuffle", size: 18, active: player.shuffle, help: player.shuffle ? "随机播放：开" : "随机播放：关") {
                 player.toggleShuffle()
             }
+            .foregroundStyle(player.shuffle ? Theme.accent : Theme.text)
             Spacer()
             IconButton(systemName: player.repeatMode.symbol, size: 18, help: player.repeatMode.label) {
                 player.cycleRepeat()
             }
+            .foregroundStyle(player.repeatMode == .off ? Theme.text : Theme.accent)
             Spacer()
             IconButton(systemName: "list.bullet", size: 18, help: "播放队列") { showQueue.toggle() }
                 .popover(isPresented: $showQueue) { QueueView().environment(player) }
@@ -247,12 +262,12 @@ struct NowPlayingView: View {
             Spacer()
             Button { player.togglePlayPause() } label: {
                 Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 28))
-                    .foregroundStyle(Color.accentColor)
+                    .font(.system(size: 28, weight: .bold))
+                    .foregroundStyle(Theme.ink)
                     .offset(x: player.isPlaying ? 0 : 2)
                     .frame(width: 68, height: 68)
-                    .background(Circle().fill(.white))
-                    .shadow(color: .black.opacity(0.2), radius: 8, y: 3)
+                    .background(Circle().fill(Theme.accent))
+                    .shadow(color: Theme.accent.opacity(0.35), radius: 14)
             }
             .buttonStyle(.plain)
             .help(player.isPlaying ? "暂停（空格）" : "播放（空格）")
@@ -267,15 +282,35 @@ struct NowPlayingView: View {
     private var upNext: some View {
         Button { showQueueFromBottom.toggle() } label: {
             Text("下一首：\(player.upNext?.title ?? "无")")
-                .font(.system(size: 13, weight: .medium))
+                .font(.ui(13, .semibold))
+                .foregroundStyle(Theme.text2)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 11)
-                .background(RoundedRectangle(cornerRadius: 10).fill(.white.opacity(0.1)))
+                .background(Capsule().fill(Theme.surface))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .popover(isPresented: $showQueueFromBottom) { QueueView().environment(player) }
+    }
+}
+
+/// 圆形封面外的一圈进度环（Porthole 表盘的圆环）
+private struct ProgressRing: View {
+    @Environment(PlayerController.self) private var player
+    private let width: CGFloat = 6
+
+    var body: some View {
+        let fraction = player.duration > 0 ? min(1, player.currentTime / player.duration) : 0
+        ZStack {
+            Circle().stroke(Theme.track, lineWidth: width)
+            Circle()
+                .trim(from: 0, to: fraction)
+                .stroke(Theme.accent, style: StrokeStyle(lineWidth: width, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+        }
+        .padding(-14)
+        .allowsHitTesting(false)
     }
 }
 
@@ -285,8 +320,8 @@ private struct CurrentLyricLine: View {
 
     var body: some View {
         Text(text)
-            .font(.system(size: 17, weight: .medium))
-            .foregroundStyle(.white.opacity(0.75))
+            .font(.ui(17, .semibold))
+            .foregroundStyle(Theme.text2)
             .multilineTextAlignment(.center)
             .lineLimit(2)
             .frame(height: 48)
@@ -308,35 +343,39 @@ private struct CurrentLyricLine: View {
 private struct ProgressSection: View {
     @Environment(PlayerController.self) private var player
     @State private var dragTime: Double?
-    @State private var editing = false
+    @State private var hovering = false
 
     var body: some View {
-        VStack(spacing: 6) {
-            Slider(
-                value: Binding(
-                    get: { dragTime ?? player.currentTime },
-                    set: { value in
-                        if editing { dragTime = value } else { player.seek(to: value) }
-                    }
-                ),
-                in: 0...max(player.duration, 1),
-                onEditingChanged: { isEditing in
-                    editing = isEditing
-                    if !isEditing, let t = dragTime {
-                        player.seek(to: t)
-                        dragTime = nil
-                    }
-                }
-            )
-            .tint(.white)
-            .controlSize(.small)
+        let duration = max(player.duration, 1)
+        let time = dragTime ?? player.currentTime
+        VStack(spacing: 8) {
+            // Porthole 的粗胶囊进度条，播放时有光带滑过；点击或拖动跳转
+            GeometryReader { geo in
+                CapsuleBar(value: time / duration, height: hovering || dragTime != nil ? 10 : 8,
+                           shimmer: player.isPlaying && dragTime == nil)
+                    .frame(maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { value in
+                                dragTime = min(1, max(0, value.location.x / geo.size.width)) * duration
+                            }
+                            .onEnded { _ in
+                                if let t = dragTime { player.seek(to: t) }
+                                dragTime = nil
+                            }
+                    )
+            }
+            .frame(height: 18)
+            .onHover { hovering = $0 }
+            .animation(.easeOut(duration: 0.12), value: hovering)
             HStack {
-                Text(formatTime(dragTime ?? player.currentTime))
+                Text(formatTime(time))
                 Spacer()
                 Text(formatTime(player.duration))
             }
-            .font(.system(size: 12).monospacedDigit())
-            .opacity(0.75)
+            .font(.ui(12, .semibold).monospacedDigit())
+            .foregroundStyle(Theme.text2)
         }
     }
 }
@@ -349,19 +388,23 @@ struct LyricsView: View {
     var body: some View {
         switch player.lyricsState {
         case .loading, .idle:
-            ProgressView().controlSize(.small).tint(.white)
+            ProgressView().controlSize(.small).tint(Theme.text2)
         case .notFound:
             VStack(spacing: 14) {
-                Text("暂无歌词").font(.system(size: 18, weight: .medium)).opacity(0.8)
-                Button(player.isFetchingOnline ? "正在搜索…" : "联网搜索歌词") { player.searchOnline() }
-                    .disabled(player.isFetchingOnline)
+                Text("暂无歌词").font(.ui(18, .semibold)).foregroundStyle(Theme.text2)
+                Button { player.searchOnline() } label: {
+                    ChipText(text: player.isFetchingOnline ? "正在搜索…" : "联网搜索歌词", color: Theme.accent,
+                             font: .ui(14, .bold), hPad: 18, vPad: 8)
+                }
+                .buttonStyle(.plain)
+                .disabled(player.isFetchingOnline)
             }
         case .loaded:
             if player.lyrics.first?.time == nil {
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 14) {
                         ForEach(player.lyrics) { line in
-                            Text(line.text).font(.system(size: 17)).opacity(0.85)
+                            Text(line.text).font(.ui(17, .medium)).foregroundStyle(Theme.text)
                         }
                     }
                     .multilineTextAlignment(.center)
@@ -387,8 +430,8 @@ private struct SyncedLyrics: View {
                     Color.clear.frame(height: 160)
                     ForEach(Array(lines.enumerated()), id: \.element.id) { i, line in
                         Text(line.text)
-                            .font(.system(size: i == current ? 26 : 19, weight: i == current ? .bold : .medium))
-                            .foregroundStyle(.white.opacity(i == current ? 1 : 0.5))
+                            .font(.ui(i == current ? 26 : 19, i == current ? .heavy : .semibold))
+                            .foregroundStyle(i == current ? Theme.text : Theme.text3)
                             .multilineTextAlignment(.center)
                             .frame(maxWidth: .infinity)
                             .contentShape(Rectangle())

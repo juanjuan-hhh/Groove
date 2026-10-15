@@ -23,11 +23,11 @@ struct SongListView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider()
+            ThemeDivider()
             if tracks.isEmpty {
                 VStack(spacing: 8) {
-                    Image(systemName: "music.note").font(.system(size: 36)).foregroundStyle(.tertiary)
-                    Text(library.isScanning ? "正在扫描…" : "没有歌曲").foregroundStyle(.secondary)
+                    Image(systemName: "music.note").font(.system(size: 36)).foregroundStyle(Theme.text3)
+                    Text(library.isScanning ? "正在扫描…" : "没有歌曲").font(.ui(14)).foregroundStyle(Theme.text2)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -42,8 +42,13 @@ struct SongListView: View {
                 if player.shuffle { player.playShuffled(tracks) } else { player.play(tracks) }
             } label: {
                 HStack(spacing: 10) {
-                    Image(systemName: "play.fill").font(.system(size: 15))
-                    Text("\(tracks.count) 首歌曲").font(.system(size: 15, weight: .medium))
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(Theme.ink)
+                        .offset(x: 1)
+                        .frame(width: 28, height: 28)
+                        .background(Circle().fill(Theme.accent))
+                    Text("\(tracks.count) 首歌曲").font(.ui(15, .bold)).foregroundStyle(Theme.text)
                 }
                 .contentShape(Rectangle())
             }
@@ -53,8 +58,8 @@ struct SongListView: View {
             if library.isScanning {
                 ProgressView().controlSize(.small)
                 Text("正在扫描 \(library.scanned)/\(library.scanTotal)")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
+                    .font(.ui(12))
+                    .foregroundStyle(Theme.text2)
             }
 
             Spacer()
@@ -62,9 +67,11 @@ struct SongListView: View {
             IconButton(systemName: "shuffle", active: player.shuffle, help: player.shuffle ? "随机播放：开" : "随机播放：关") {
                 player.toggleShuffle()
             }
+            .foregroundStyle(player.shuffle ? Theme.accent : Theme.text2)
             IconButton(systemName: player.repeatMode.symbol, help: player.repeatMode.label) {
                 player.cycleRepeat()
             }
+            .foregroundStyle(player.repeatMode == .off ? Theme.text2 : Theme.accent)
             if showSortMenu { sortMenu }
         }
         .padding(.leading, 24)
@@ -89,6 +96,7 @@ struct SongListView: View {
             Button(library.ascending ? "改为倒序" : "改为正序") { library.toggleAscending() }
         } label: {
             Image(systemName: "arrow.up.arrow.down").font(.system(size: 15, weight: .medium))
+                .foregroundStyle(Theme.text2)
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
@@ -102,9 +110,7 @@ struct SongListView: View {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     if let sections {
                         ForEach(sections) { section in
-                            Text(section.id)
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundStyle(Color.accentColor)
+                            ChipText(text: section.id, color: Theme.surface, foreground: Theme.text, font: .ui(12, .heavy), hPad: 9, vPad: 2)
                                 .padding(.horizontal, 24)
                                 .padding(.top, 14)
                                 .padding(.bottom, 4)
@@ -130,11 +136,11 @@ struct SongListView: View {
                         withAnimation { proxy.scrollTo(current.id, anchor: .center) }
                     } label: {
                         Image(systemName: "scope")
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundStyle(Color.accentColor)
+                            .font(.system(size: 17, weight: .bold))
+                            .foregroundStyle(Theme.ink)
                             .frame(width: 38, height: 38)
-                            .background(.regularMaterial, in: Circle())
-                            .shadow(color: .black.opacity(0.12), radius: 4, y: 2)
+                            .background(Circle().fill(Theme.accent))
+                            .shadow(color: .black.opacity(0.5), radius: 6, y: 2)
                     }
                     .buttonStyle(.plain)
                     .padding(.trailing, 40)
@@ -164,17 +170,17 @@ struct TrackRow: View {
     var body: some View {
         let isCurrent = player.current?.id == track.id
         HStack(spacing: 12) {
-            ArtworkView(track: track, size: 46, cornerRadius: 6)
+            ArtworkView(track: track, size: 46)
             VStack(alignment: .leading, spacing: 4) {
                 Text(track.title)
-                    .font(.system(size: 14, weight: isCurrent ? .semibold : .regular))
-                    .foregroundStyle(isCurrent ? Color.accentColor : Color.primary)
+                    .font(.ui(14, isCurrent ? .bold : .medium))
+                    .foregroundStyle(isCurrent ? Theme.accent : Theme.text)
                     .lineLimit(1)
                 HStack(spacing: 6) {
                     QualityBadge(quality: track.quality)
                     Text("\(track.artist) | \(formatTime(track.duration))")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
+                        .font(.ui(12))
+                        .foregroundStyle(Theme.text2)
                         .lineLimit(1)
                 }
             }
@@ -182,12 +188,12 @@ struct TrackRow: View {
             if isCurrent {
                 Image(systemName: player.isPlaying ? "speaker.wave.2.fill" : "speaker.fill")
                     .font(.system(size: 12))
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(Theme.accent)
             }
             Menu {
                 TrackMenuItems(track: track, playlistID: playlistID, onPlay: onPlay)
             } label: {
-                Image(systemName: "ellipsis")
+                Image(systemName: "ellipsis").foregroundStyle(Theme.text2)
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
@@ -198,8 +204,8 @@ struct TrackRow: View {
         .padding(.trailing, 36)
         .padding(.vertical, 6)
         .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(hovering ? Color.primary.opacity(0.06) : .clear)
+            RoundedRectangle(cornerRadius: Theme.rowRadius, style: .continuous)
+                .fill(hovering ? Theme.surface : (isCurrent ? Theme.card : .clear))
                 .padding(.horizontal, 10)
         )
         .contentShape(Rectangle())
@@ -222,8 +228,8 @@ struct AlphabetIndex: View {
                     onSelect(letter)
                 } label: {
                     Text(letter)
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.secondary)
+                        .font(.ui(10, .bold))
+                        .foregroundStyle(Theme.text2)
                         .frame(width: 18, height: 14)
                         .contentShape(Rectangle())
                 }
@@ -231,6 +237,7 @@ struct AlphabetIndex: View {
             }
         }
         .padding(.vertical, 6)
+        .background(Capsule().fill(Theme.card))
         .padding(.trailing, 6)
     }
 }
