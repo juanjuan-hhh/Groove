@@ -95,7 +95,7 @@ struct TopBar: View {
     var body: some View {
         HStack(spacing: 18) {
             // 分段胶囊：选中的是奶油色底 + 深色字（Porthole 网页的语言切换按钮）
-            HStack(spacing: 4) {
+            HStack(spacing: 2) {
                 ForEach(LibraryTab.allCases) { item in
                     let selected = tab == item && searchText.isEmpty
                     Button {
@@ -103,17 +103,17 @@ struct TopBar: View {
                         searchText = ""
                     } label: {
                         Text(item.rawValue)
-                            .font(.ui(14, selected ? .bold : .semibold))
+                            .font(.ui(12, selected ? .bold : .semibold))
                             .foregroundStyle(selected ? Theme.onText : Theme.text2)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 6)
+                            .padding(.horizontal, 11)
+                            .padding(.vertical, 4)
                             .background(Capsule().fill(selected ? Theme.text : .clear))
                             .contentShape(Capsule())
                     }
                     .buttonStyle(.plain)
                 }
             }
-            .padding(4)
+            .padding(3)
             .background(Capsule().fill(Theme.card))
             .animation(.easeInOut(duration: 0.15), value: tab)
 
