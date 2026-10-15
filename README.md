@@ -1,4 +1,4 @@
-# 本地音乐（macOS）
+# Groove（macOS 本地音乐播放器）
 
 参考安卓 RPlayer 做的 Mac 本地音乐播放器，SwiftUI 原生开发，需要 macOS 14 或更新版本。
 
@@ -20,7 +20,7 @@ cd ~/Documents/"music app project"
 ./build-app.sh
 ```
 
-它会编译、打包，并自动安装到「应用程序」文件夹（`/Applications/本地音乐.app`），`build/本地音乐.app` 里也留一份。如果旧版本正在运行，会先退出它，装好后再打开新版本。
+它会编译、打包，并自动安装到「应用程序」文件夹（`/Applications/Groove.app`），`build/Groove.app` 里也留一份。如果旧版本正在运行，会先退出它，装好后再打开新版本。
 
 以后改了代码，再运行一次 `./build-app.sh` 就会更新。音乐库、歌单、收藏、设置和下载的封面/歌词都在 `~/Library/Application Support/LocalMusic/`，更新 App 不会丢。
 

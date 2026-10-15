@@ -1,5 +1,5 @@
 #!/bin/bash
-# 编译并打包成「本地音乐.app」，放在 build 文件夹里，并安装到「应用程序」文件夹。
+# 编译并打包成「Groove.app」，放在 build 文件夹里，并安装到「应用程序」文件夹。
 # 用法：在终端里进入这个文件夹，运行  ./build-app.sh
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -18,8 +18,8 @@ fi
 swift build -c release --scratch-path "$SCRATCH" ${SDK_ARGS[@]+"${SDK_ARGS[@]}"}
 BIN_DIR="$(swift build -c release --scratch-path "$SCRATCH" ${SDK_ARGS[@]+"${SDK_ARGS[@]}"} --show-bin-path)"
 
-APP="build/本地音乐.app"
-rm -rf "$APP"
+APP="build/Groove.app"
+rm -rf "$APP" "build/本地音乐.app"   # 旧名字的也删掉
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN_DIR/LocalMusic" "$APP/Contents/MacOS/LocalMusic"
 cp Support/Info.plist "$APP/Contents/Info.plist"
@@ -28,18 +28,25 @@ codesign --force --sign - "$APP" >/dev/null 2>&1 || true
 
 # 安装到「应用程序」：先退出正在运行的旧版本，再替换。音乐库、歌单、设置都在
 # ~/Library/Application Support/LocalMusic，不在 App 里，替换不会丢。
-INSTALLED="/Applications/本地音乐.app"
+INSTALLED="/Applications/Groove.app"
+OLD_INSTALLED="/Applications/本地音乐.app"   # 改名前的旧版本
 BUNDLE_ID="com.juan.localmusic"
 WAS_RUNNING=0
-if pgrep -f "本地音乐.app/Contents/MacOS/LocalMusic" >/dev/null; then
+if pgrep -f "\.app/Contents/MacOS/LocalMusic" >/dev/null; then
   WAS_RUNNING=1
   osascript -e "tell application id \"$BUNDLE_ID\" to quit" >/dev/null 2>&1 || true
   for _ in {1..20}; do
-    pgrep -f "本地音乐.app/Contents/MacOS/LocalMusic" >/dev/null || break
+    pgrep -f "\.app/Contents/MacOS/LocalMusic" >/dev/null || break
     sleep 0.25
   done
 fi
 rm -rf "$INSTALLED"
+# 只删确实是这个 App 的旧版本（看 bundle id），不碰别的东西
+if [[ -d "$OLD_INSTALLED" ]] && [[ "$(plutil -extract CFBundleIdentifier raw "$OLD_INSTALLED/Contents/Info.plist" 2>/dev/null)" == "$BUNDLE_ID" ]]; then
+  /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -u "$OLD_INSTALLED" >/dev/null 2>&1 || true
+  rm -rf "$OLD_INSTALLED"
+  echo "已删除改名前的旧版本：$OLD_INSTALLED"
+fi
 ditto "$APP" "$INSTALLED"
 touch "$INSTALLED"   # 让 Finder / Dock 刷新图标
 # 先登记新版本，否则刚复制完马上打开可能报 -600

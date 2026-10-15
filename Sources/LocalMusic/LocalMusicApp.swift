@@ -8,7 +8,7 @@ struct LocalMusicApp: App {
     @State private var player = PlayerController()
 
     var body: some Scene {
-        WindowGroup("本地音乐") {
+        WindowGroup("Groove") {
             ContentView()
                 .environment(library)
                 .environment(player)
