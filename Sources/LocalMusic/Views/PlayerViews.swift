@@ -35,6 +35,7 @@ struct MiniPlayerBar: View {
                         .popover(isPresented: $showQueue, arrowEdge: .top) {
                             QueueView().environment(player)
                         }
+                    OutputDevicePicker(player: player.avPlayer)
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 8)
@@ -136,9 +137,6 @@ struct NowPlayingView: View {
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .mask(LyricsFadeMask())
                             .padding(.top, 22)
-                        if player.hasSyncedLyrics {
-                            LyricOffsetControl().padding(.bottom, 14)
-                        }
                     } else {
                         cover(in: geo.size)
                             .frame(maxHeight: .infinity)
@@ -211,7 +209,8 @@ struct NowPlayingView: View {
                         .disabled(!OnlineMedia.hasOnlineCover(track))
                 }
                 Divider()
-                LyricOffsetMenuItems()
+                Menu("歌词调整（\(player.lyricOffsetLabel)）") { LyricOffsetMenuItems() }
+                    .disabled(!player.hasSyncedLyrics)
                 if let track = player.current {
                     Button("在访达中显示") { NSWorkspace.shared.activateFileViewerSelecting([track.url]) }
                 }
@@ -260,6 +259,8 @@ struct NowPlayingView: View {
                 .popover(isPresented: $showQueue) { QueueView().environment(player) }
             Spacer()
             SleepTimerMenu(size: 18)
+            Spacer()
+            OutputDevicePicker(player: player.avPlayer, size: 30)
             Spacer()
         }
         .opacity(0.9)
@@ -340,51 +341,7 @@ private struct LyricsFadeMask: View {
     }
 }
 
-/// 歌词时间调整：[延后 0.5s] 当前调整量 [提前 0.5s]，点中间复位
-struct LyricOffsetControl: View {
-    @Environment(PlayerController.self) private var player
-
-    var body: some View {
-        let step = PlayerController.lyricOffsetStep
-        HStack(spacing: 4) {
-            stepButton("minus", "延后", help: "歌词延后 0.5 秒（歌词比歌快时用）") { player.adjustLyricOffset(by: -step) }
-            Button { player.resetLyricOffset() } label: {
-                Text(player.lyricOffsetLabel)
-                    .font(.ui(13, .bold).monospacedDigit())
-                    .foregroundStyle(player.lyricOffset == 0 ? Theme.text2 : Theme.ink)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 6)
-                    .background(Capsule().fill(player.lyricOffset == 0 ? .clear : Theme.accent))
-                    .contentShape(Capsule())
-            }
-            .buttonStyle(.plain)
-            .disabled(player.lyricOffset == 0)
-            .help("点击复位")
-            stepButton("plus", "提前", help: "歌词提前 0.5 秒（歌词比歌慢时用）") { player.adjustLyricOffset(by: step) }
-        }
-        .padding(4)
-        .background(Capsule().fill(Theme.card))
-        .animation(.easeInOut(duration: 0.15), value: player.lyricOffset)
-    }
-
-    private func stepButton(_ symbol: String, _ text: String, help: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 4) {
-                Image(systemName: symbol).font(.system(size: 10, weight: .heavy))
-                Text("\(text) 0.5s").font(.ui(12, .bold))
-            }
-            .foregroundStyle(Theme.text)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(Capsule().fill(Theme.surface))
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .help(help)
-    }
-}
-
-/// 菜单里的歌词时间调整（正在播放页的 ⋯ 菜单和顶部「播放」菜单共用）
+/// 歌词时间调整（正在播放页 ⋯ 菜单里的「歌词调整」和顶部「播放」菜单共用）
 struct LyricOffsetMenuItems: View {
     @Environment(PlayerController.self) private var player
     var showShortcuts = false
