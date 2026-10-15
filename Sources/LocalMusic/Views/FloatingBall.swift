@@ -36,11 +36,13 @@ final class FloatingBall {
         tucked = false
         updateDock(for: panel.frame)
         scheduleTuck(after: 1.5)
+        installMouseMonitor()
     }
 
     func exit() {
         guard let panel, panel.isVisible else { return }
         cancelTuck()
+        removeMouseMonitor()
         UserDefaults.standard.set(NSStringFromPoint((tucked ? shownFrame : nil)?.origin ?? panel.frame.origin),
                                   forKey: Self.originKey)
         tucked = false
@@ -49,20 +51,73 @@ final class FloatingBall {
         (mainWindow ?? NSApp.windows.first { !($0 is NSPanel) && $0.canBecomeMain })?.makeKeyAndOrderFront(nil)
     }
 
-    // MARK: 拖动（按屏幕上的鼠标位置算，窗口跟着鼠标走不会抖）
+    // MARK: 拖动
+    // 直接处理 AppKit 的鼠标事件（不经过 SwiftUI 手势），窗口每次鼠标移动都马上跟过去，跟手；
+    // 按下时照常交给按钮，移动超过 3 像素才算拖动，松手一定会贴边、记住位置。
 
     @ObservationIgnored private var dragStart: (mouse: NSPoint, origin: NSPoint)?
+    @ObservationIgnored private var pressPoint: NSPoint?
+    @ObservationIgnored private var mouseMonitor: Any?
 
-    func drag() {
-        guard let panel else { return }
-        let mouse = NSEvent.mouseLocation
-        if dragStart == nil {
-            dragStart = (mouse, panel.frame.origin)
-            cancelTuck()
-            dock = nil
-            tucked = false
+    private func installMouseMonitor() {
+        guard mouseMonitor == nil else { return }
+        mouseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp]) { event in
+            // 本地事件监听总在主线程调用
+            nonisolated(unsafe) let incoming = event
+            nonisolated(unsafe) var result: NSEvent? = event
+            MainActor.assumeIsolated { result = FloatingBall.shared.handle(incoming) }
+            return result
         }
-        guard let start = dragStart else { return }
+    }
+
+    private func removeMouseMonitor() {
+        if let mouseMonitor { NSEvent.removeMonitor(mouseMonitor) }
+        mouseMonitor = nil
+        pressPoint = nil
+        dragStart = nil
+    }
+
+    private func handle(_ event: NSEvent) -> NSEvent? {
+        guard let panel, event.window === panel else { return event }
+        let mouse = NSEvent.mouseLocation
+        switch event.type {
+        case .leftMouseDown:
+            pressPoint = mouse
+            return event
+        case .leftMouseDragged:
+            guard let press = pressPoint else { return event }
+            if dragStart == nil {
+                guard hypot(mouse.x - press.x, mouse.y - press.y) >= 3 else { return event }
+                beginDrag(from: press)
+            }
+            moveWithMouse(mouse)
+            return nil
+        case .leftMouseUp:
+            pressPoint = nil
+            guard dragStart != nil else { return event }   // 没拖动：普通点击，照常交给按钮
+            endDrag()
+            // 拖完松手的位置可能正好在某个按钮上：把这次松开挪到窗口外面，按钮就不会被误点
+            return NSEvent.mouseEvent(with: .leftMouseUp, location: NSPoint(x: -1000, y: -1000),
+                                      modifierFlags: event.modifierFlags, timestamp: event.timestamp,
+                                      windowNumber: event.windowNumber, context: nil,
+                                      eventNumber: event.eventNumber, clickCount: event.clickCount,
+                                      pressure: event.pressure)
+        default:
+            return event
+        }
+    }
+
+    private func beginDrag(from press: NSPoint) {
+        guard let panel else { return }
+        dragStart = (press, panel.frame.origin)
+        cancelTuck()
+        dock = nil
+        tucked = false
+        withAnimation(.easeInOut(duration: 0.15)) { tuckedEdge = nil }
+    }
+
+    private func moveWithMouse(_ mouse: NSPoint) {
+        guard let panel, let start = dragStart else { return }
         panel.setFrameOrigin(NSPoint(x: start.origin.x + mouse.x - start.mouse.x,
                                      y: start.origin.y + mouse.y - start.mouse.y))
     }
@@ -158,7 +213,7 @@ final class FloatingBall {
     }
 
     /// 离屏幕边缘（菜单栏下、程序坞以外）不到这么远就贴过去
-    private static let snapDistance: CGFloat = 48
+    private static let snapDistance: CGFloat = 64
     /// 贴边后和边缘留的空隙
     private static let edgeGap: CGFloat = 6
 
@@ -267,12 +322,7 @@ struct FloatingBallView: View {
         .frame(width: size, height: size)
         .clipShape(Circle())
         .contentShape(Circle())
-        // 按住拖动挪位置，双击回主窗口；上面的按钮优先响应自己的点击
-        .gesture(
-            DragGesture(minimumDistance: 2)
-                .onChanged { _ in FloatingBall.shared.drag() }
-                .onEnded { _ in FloatingBall.shared.endDrag() }
-        )
+        // 拖动在 FloatingBall 里按鼠标事件处理；双击回主窗口
         .onTapGesture(count: 2) { FloatingBall.shared.exit() }
         .contextMenu {
             if let track = player.current {
