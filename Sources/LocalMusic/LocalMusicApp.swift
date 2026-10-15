@@ -61,11 +61,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     weak var player: PlayerController?
     private var keyMonitor: Any?
     private var titleBarMonitor: Any?
+    private var appearanceObservation: NSKeyValueObservation?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         // 按「外观」设置（默认深色，和 Porthole 一样）：菜单、弹窗、播放队列浮窗也跟着变
         NSApp.appearance = AppearanceMode.current.nsAppearance
+        // 浅色外观时程序坞图标换成白底的
+        appearanceObservation = NSApp.observe(\.effectiveAppearance, options: [.initial, .new]) { app, _ in
+            MainActor.assumeIsolated { DockIcon.update(for: app.effectiveAppearance) }
+        }
         NSApp.activate(ignoringOtherApps: true)
 
         // 空格键播放/暂停（在搜索框里打字时不拦截）

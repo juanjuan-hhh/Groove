@@ -24,6 +24,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN_DIR/LocalMusic" "$APP/Contents/MacOS/LocalMusic"
 cp Support/Info.plist "$APP/Contents/Info.plist"
 cp Support/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+cp Support/AppIcon-light.png "$APP/Contents/Resources/AppIcon-light.png"   # 浅色外观时的程序坞图标
 codesign --force --sign - "$APP" >/dev/null 2>&1 || true
 
 # 安装到「应用程序」：先退出正在运行的旧版本，再替换。音乐库、歌单、设置都在

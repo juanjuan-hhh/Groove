@@ -240,7 +240,9 @@ struct FloatingBallView: View {
     var body: some View {
         let fraction = player.duration > 0 ? min(1, player.currentTime / player.duration) : 0
         ZStack {
-            Circle().fill(Theme.card)
+            // 半透明玻璃底，加一层很淡的底色让进度环看得清
+            GlassBackground(cornerRadius: size / 2)
+            Circle().fill(Theme.card.opacity(0.35)).allowsHitTesting(false)
             if let edge = FloatingBall.shared.tuckedEdge {
                 tuckedFace(edge: edge, fraction: fraction)
                     .transition(.opacity)
