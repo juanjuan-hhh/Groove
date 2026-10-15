@@ -308,7 +308,7 @@ struct FloatingBallView: View {
                         .foregroundStyle(Theme.accent)
                 }
             }
-            .offset(x: mirror * size / 4 + (edge == .right ? 3 : -3))
+            .offset(x: mirror * size / 4 + (edge == .right ? 10 : -10))   // 往球心挪一点，离蓝圈远些
             .transition(.opacity)
         }
         .animation(.easeInOut(duration: 0.2), value: player.isPlaying)
