@@ -85,12 +85,14 @@ final class FloatingBall {
 
     // MARK: 贴边藏一半（像 QQ 音乐）：贴在左右边时，鼠标离开一会儿就滑出去一半，移上去再滑回来
 
-    private enum DockEdge { case left, right }
+    enum DockEdge { case left, right }
 
     @ObservationIgnored private var dock: DockEdge?
     /// 贴边时完整露出来的位置
     @ObservationIgnored private var shownFrame: NSRect?
     @ObservationIgnored private var tucked = false
+    /// 藏起一半时贴在哪边（界面据此改成「半圆进度 + 播放状态」），露出来时为 nil
+    private(set) var tuckedEdge: DockEdge?
     @ObservationIgnored private var tuckTask: Task<Void, Never>?
 
     func pointerEntered() {
@@ -147,6 +149,7 @@ final class FloatingBall {
     private func slide(to frame: NSRect?, tucked: Bool) {
         guard let panel, let frame else { return }
         self.tucked = tucked
+        withAnimation(.easeInOut(duration: 0.2)) { tuckedEdge = tucked ? dock : nil }
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.22
             context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
@@ -238,18 +241,24 @@ struct FloatingBallView: View {
         let fraction = player.duration > 0 ? min(1, player.currentTime / player.duration) : 0
         ZStack {
             Circle().fill(Theme.card)
-            SpinningArtwork(track: player.current, size: size - ring * 2 - 6)
-                .allowsHitTesting(false)
+            if let edge = FloatingBall.shared.tuckedEdge {
+                tuckedFace(edge: edge, fraction: fraction)
+                    .transition(.opacity)
+            } else {
+                Group {
+                    SpinningArtwork(track: player.current, size: size - ring * 2 - 6)
 
-            // 进度环
-            Circle().stroke(Theme.track, lineWidth: ring).padding(ring / 2)
+                    // 进度环
+                    Circle().stroke(Theme.track, lineWidth: ring).padding(ring / 2)
+                    Circle()
+                        .trim(from: 0, to: fraction)
+                        .stroke(Theme.accent, style: StrokeStyle(lineWidth: ring, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                        .padding(ring / 2)
+                }
                 .allowsHitTesting(false)
-            Circle()
-                .trim(from: 0, to: fraction)
-                .stroke(Theme.accent, style: StrokeStyle(lineWidth: ring, lineCap: .round))
-                .rotationEffect(.degrees(-90))
-                .padding(ring / 2)
-                .allowsHitTesting(false)
+                .transition(.opacity)
+            }
 
             if hovering { controls.transition(.opacity) }
         }
@@ -275,6 +284,32 @@ struct FloatingBallView: View {
             Button("返回主窗口") { FloatingBall.shared.exit() }
         }
         .help(player.current.map { "\($0.title) — \($0.artist)\n双击回到主窗口" } ?? "双击回到主窗口")
+    }
+
+    /// 藏起一半时的样子：不显示封面；露出来的半圆边就是整条进度（从上到下），
+    /// 露出来那半边的中间显示播放 / 暂停状态
+    private func tuckedFace(edge: FloatingBall.DockEdge, fraction: Double) -> some View {
+        // 贴右边时露出左半边，进度从顶部沿左边走到底部；贴左边时反过来
+        let mirror: CGFloat = edge == .right ? -1 : 1
+        return ZStack {
+            Circle()
+                .trim(from: 0, to: 0.5)
+                .stroke(Theme.track, style: StrokeStyle(lineWidth: ring, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+                .scaleEffect(x: mirror, y: 1)
+                .padding(ring / 2)
+            Circle()
+                .trim(from: 0, to: 0.5 * fraction)
+                .stroke(Theme.accent, style: StrokeStyle(lineWidth: ring, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+                .scaleEffect(x: mirror, y: 1)
+                .padding(ring / 2)
+            Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                .font(.system(size: 18, weight: .bold))
+                .foregroundStyle(Theme.accent)
+                .offset(x: mirror * size / 4 + (edge == .right ? 2 : -2))
+        }
+        .allowsHitTesting(false)
     }
 
     /// 鼠标移上去时的按钮
