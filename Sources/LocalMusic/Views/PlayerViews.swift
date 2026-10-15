@@ -67,6 +67,9 @@ struct MiniPlayerBar: View {
                 .popover(isPresented: $showQueue, arrowEdge: .top) {
                     QueueView().environment(player)
                 }
+            IconButton(systemName: "circle.circle", size: 16, help: "切换到悬浮球（⇧⌘M）") {
+                FloatingBall.shared.enter(player: player)
+            }
         }
     }
 }
