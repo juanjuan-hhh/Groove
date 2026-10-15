@@ -93,7 +93,7 @@ struct TopBar: View {
     @AppStorage(AppearanceMode.key) private var appearance: AppearanceMode = .dark
 
     var body: some View {
-        HStack(spacing: 18) {
+        HStack(spacing: 14) {
             // 分段胶囊：选中的是奶油色底 + 深色字（Porthole 网页的语言切换按钮）
             HStack(spacing: 2) {
                 ForEach(LibraryTab.allCases) { item in
@@ -103,31 +103,31 @@ struct TopBar: View {
                         searchText = ""
                     } label: {
                         Text(item.rawValue)
-                            .font(.ui(12, selected ? .bold : .semibold))
+                            .font(.ui(11, selected ? .bold : .semibold))
                             .foregroundStyle(selected ? Theme.onText : Theme.text2)
-                            .padding(.horizontal, 11)
-                            .padding(.vertical, 4)
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 3)
                             .background(Capsule().fill(selected ? Theme.text : .clear))
                             .contentShape(Capsule())
                     }
                     .buttonStyle(.plain)
                 }
             }
-            .padding(3)
+            .padding(2)
             .background(Capsule().fill(Theme.card))
             .animation(.easeInOut(duration: 0.15), value: tab)
 
             Spacer(minLength: 12)
 
             HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass").foregroundStyle(Theme.text2)
+                Image(systemName: "magnifyingglass").font(.system(size: 11, weight: .medium)).foregroundStyle(Theme.text2)
                 if searchActive {
                     TextField("搜索歌名、歌手、拼音", text: $searchText)
                         .textFieldStyle(.plain)
-                        .font(.ui(13))
+                        .font(.ui(12))
                 } else {
                     Text(searchText.isEmpty ? "搜索歌名、歌手、拼音" : searchText)
-                        .font(.ui(13))
+                        .font(.ui(12))
                         .foregroundStyle(searchText.isEmpty ? Theme.text3 : Theme.text)
                         .lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -139,13 +139,13 @@ struct TopBar: View {
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 11)
+            .padding(.vertical, 5)
             .background(Capsule().fill(Theme.card))
             .overlay(Capsule().stroke(searchText.isEmpty ? Theme.line : Theme.accent, lineWidth: 1))
-            .frame(width: 230)
+            .frame(width: 200)
 
-            SleepTimerMenu()
+            SleepTimerMenu(size: 13)
 
             Menu {
                 Button("添加音乐文件夹…") { library.addFolder() }
@@ -164,7 +164,7 @@ struct TopBar: View {
                     ForEach(AppearanceMode.allCases) { Text($0.label).tag($0) }
                 }
             } label: {
-                Image(systemName: "gearshape").font(.system(size: 16))
+                Image(systemName: "gearshape").font(.system(size: 13))
                     .foregroundStyle(Theme.text2)
             }
             .menuStyle(.borderlessButton)
@@ -173,7 +173,7 @@ struct TopBar: View {
             .help("设置")
         }
         .padding(.horizontal, 24)
-        .padding(.vertical, 12)
+        .padding(.vertical, 9)
         .background(WindowDragArea())
     }
 }
