@@ -170,6 +170,7 @@ struct TopBar: View {
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 12)
+        .background(WindowDragArea())
     }
 }
 

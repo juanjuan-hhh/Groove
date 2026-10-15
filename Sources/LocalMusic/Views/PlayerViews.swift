@@ -130,7 +130,7 @@ struct NowPlayingView: View {
             ZStack {
                 background(geo.size)
                 VStack(spacing: 0) {
-                    header.padding(.top, 14)
+                    header.padding(.top, 14).background(WindowDragArea())
                     if player.showLyrics {
                         LyricsView()
                             .frame(maxWidth: .infinity, maxHeight: .infinity)

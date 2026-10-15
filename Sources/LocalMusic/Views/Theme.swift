@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// 配色和样式，取自 Porthole（舷窗）监控屏：黑底、奶油色文字，
@@ -122,5 +123,28 @@ private struct ShineBand: View {
                 .frame(width: width, height: height, alignment: .leading)
         }
         .allowsHitTesting(false)
+    }
+}
+
+/// 放在顶栏背后：空白处可以拖动窗口，双击缩放（和标题栏一样）。按钮、搜索框在它上面，不受影响
+struct WindowDragArea: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView { DragView() }
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    private final class DragView: NSView {
+        override var mouseDownCanMoveWindow: Bool { true }
+
+        override func mouseDown(with event: NSEvent) {
+            if event.clickCount == 2 {
+                // 跟随系统设置「连按窗口标题栏以…」：缩放或最小化
+                if UserDefaults.standard.string(forKey: "AppleActionOnDoubleClick") == "Minimize" {
+                    window?.performMiniaturize(nil)
+                } else {
+                    window?.performZoom(nil)
+                }
+            } else {
+                window?.performDrag(with: event)
+            }
+        }
     }
 }
