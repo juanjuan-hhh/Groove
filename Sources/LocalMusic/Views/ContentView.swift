@@ -67,7 +67,7 @@ struct ContentView: View {
         .sheet(item: Binding(get: { player.searchTarget }, set: { player.searchTarget = $0 })) { track in
             OnlineSearchView(track: track)
                 .environment(player)
-                .preferredColorScheme(.dark)
+                .modifier(ThemedAppearance())
         }
         .alert("新建歌单", isPresented: Binding(
             get: { library.playlistDraft != nil },
@@ -90,6 +90,7 @@ struct TopBar: View {
     var searchActive = true
     @Environment(LibraryStore.self) private var library
     @AppStorage(AppSettings.autoFetchKey) private var autoFetch = true
+    @AppStorage(AppearanceMode.key) private var appearance: AppearanceMode = .dark
 
     var body: some View {
         HStack(spacing: 18) {
@@ -159,6 +160,9 @@ struct TopBar: View {
                 }
                 Divider()
                 Toggle("自动联网获取缺少的封面和歌词", isOn: $autoFetch)
+                Picker("外观", selection: $appearance) {
+                    ForEach(AppearanceMode.allCases) { Text($0.label).tag($0) }
+                }
             } label: {
                 Image(systemName: "gearshape").font(.system(size: 16))
                     .foregroundStyle(Theme.text2)

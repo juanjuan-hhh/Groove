@@ -137,7 +137,7 @@ struct PlaylistsView: View {
                                 if let first = library.tracks(in: playlist).first {
                                     ArtworkView(track: first, size: 46)
                                 } else {
-                                    iconTile("music.note.list", Theme.slate, Theme.text)
+                                    iconTile("music.note.list", Theme.slate, Theme.cream)
                                 }
                             }
                         }

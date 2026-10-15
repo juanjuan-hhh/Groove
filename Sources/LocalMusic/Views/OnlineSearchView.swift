@@ -130,7 +130,7 @@ struct OnlineSearchView: View {
                         .font(.ui(12)).foregroundStyle(Theme.text2).lineLimit(1)
                     HStack(spacing: 6) {
                         ChipText(text: c.source.rawValue, color: sourceColor(c.source),
-                                 foreground: c.source == .itunes ? Theme.ink : Theme.text,
+                                 foreground: c.source == .itunes ? Theme.ink : Theme.cream,
                                  font: .ui(10, .heavy), hPad: 7, vPad: 2)
                         if let d = c.duration, d > 0 {
                             let close = track.duration > 0 && abs(d - track.duration) <= 3

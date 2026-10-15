@@ -162,14 +162,14 @@ struct NowPlayingView: View {
 
     private func background(_ size: CGSize) -> some View {
         let side = max(size.width, size.height)
-        // 黑底为主，只透出一点模糊的封面颜色
+        // 底色为主（深色黑、浅色白），只透出一点模糊的封面颜色
         return ZStack {
             Theme.bg
             ArtworkView(track: player.current, size: 320, cornerRadius: 0)
                 .scaleEffect(side / 320 * 1.4)
                 .blur(radius: 70)
                 .opacity(0.4)
-            LinearGradient(colors: [.black.opacity(0.35), .black.opacity(0.85)], startPoint: .top, endPoint: .bottom)
+            LinearGradient(colors: [Theme.bg.opacity(0.35), Theme.bg.opacity(0.85)], startPoint: .top, endPoint: .bottom)
         }
         .frame(width: size.width, height: size.height)
         .clipped()
