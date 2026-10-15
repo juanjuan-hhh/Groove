@@ -59,7 +59,32 @@ final class FloatingBall {
     func endDrag() {
         dragStart = nil
         guard let panel else { return }
-        UserDefaults.standard.set(NSStringFromPoint(panel.frame.origin), forKey: Self.originKey)
+        let target = snapped(panel.frame, on: panel.screen ?? NSScreen.main)
+        if target != panel.frame {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.2
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                panel.animator().setFrame(target, display: true)
+            }
+        }
+        UserDefaults.standard.set(NSStringFromPoint(target.origin), forKey: Self.originKey)
+    }
+
+    /// 离屏幕边缘（菜单栏下、程序坞以外）不到这么远就贴过去
+    private static let snapDistance: CGFloat = 48
+    /// 贴边后和边缘留的空隙
+    private static let edgeGap: CGFloat = 6
+
+    /// 贴边：靠近哪条边就贴到哪条边（靠近角落就贴到角落）；拖出屏幕的部分拉回来
+    private func snapped(_ frame: NSRect, on screen: NSScreen?) -> NSRect {
+        guard let area = screen?.visibleFrame else { return frame }
+        var f = frame
+        let lo = area.insetBy(dx: Self.edgeGap, dy: Self.edgeGap)
+        if f.minX - lo.minX < Self.snapDistance { f.origin.x = lo.minX }
+        if lo.maxX - f.maxX < Self.snapDistance { f.origin.x = lo.maxX - f.width }
+        if f.minY - lo.minY < Self.snapDistance { f.origin.y = lo.minY }
+        if lo.maxY - f.maxY < Self.snapDistance { f.origin.y = lo.maxY - f.height }
+        return f
     }
 
     private func makePanel(player: PlayerController) -> NSPanel {
