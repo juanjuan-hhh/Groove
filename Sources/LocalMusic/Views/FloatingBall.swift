@@ -383,20 +383,21 @@ struct FloatingBallView: View {
 /// 三根跳动的音柱（赭橙 / 芥末黄 / 鼠尾草绿），悬浮球藏起一半、正在播放时显示
 private struct EqualizerBars: View {
     private let colors = [Theme.terra, Theme.mustard, Theme.sage]
-    private let speeds = [5.1, 6.7, 4.3]
-    private let phases = [0.0, 1.3, 2.4]
+    private let peaks: [CGFloat] = [18, 13, 16]
+    private let durations = [0.42, 0.55, 0.36]   // 三根节奏不一样
+    @State private var up = false
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 30)) { context in
-            let t = context.date.timeIntervalSinceReferenceDate
-            HStack(alignment: .bottom, spacing: 3) {
-                ForEach(0..<3, id: \.self) { i in
-                    Capsule()
-                        .fill(colors[i])
-                        .frame(width: 4, height: 6 + 12 * abs(sin(t * speeds[i] + phases[i])))
-                }
+        // 每根柱子自己来回伸缩（SwiftUI 动画），不用每帧重算界面
+        HStack(alignment: .bottom, spacing: 3) {
+            ForEach(0..<3, id: \.self) { i in
+                Capsule()
+                    .fill(colors[i])
+                    .frame(width: 4, height: up ? peaks[i] : 5)
+                    .animation(.easeInOut(duration: durations[i]).repeatForever(autoreverses: true), value: up)
             }
-            .frame(height: 18, alignment: .bottom)
         }
+        .frame(height: 18, alignment: .bottom)
+        .onAppear { up = true }
     }
 }

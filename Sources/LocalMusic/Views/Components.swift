@@ -175,44 +175,131 @@ struct GroupRow<Leading: View>: View {
 
 /// 播放时像唱片一样慢慢转的圆形封面（正在播放页、悬浮球用）。
 /// 暂停就停在原处，继续播放从停下的角度接着转；换歌时回正。齿轮菜单里可以关掉。
+/// 转动交给 Core Animation（系统渲染进程负责），不用每帧重画界面，几乎不占 CPU。
 struct SpinningArtwork: View {
     let track: Track?
     let size: CGFloat
-    var degreesPerSecond = 18.0   // 20 秒转一圈
+    var secondsPerTurn = 20.0
 
     static let enabledKey = "spinCover"
 
     @Environment(PlayerController.self) private var player
     @AppStorage(SpinningArtwork.enabledKey) private var enabled = true
-    @State private var angleAtPause: Double = 0
-    @State private var spinStart: Date?
+    @State private var image: NSImage?
 
     var body: some View {
-        let spinning = enabled && player.isPlaying
-        TimelineView(.animation(minimumInterval: 1 / 30, paused: !spinning)) { context in
-            ArtworkView(track: track, size: size, circle: true)
-                .rotationEffect(.degrees(angle(at: context.date)))
-        }
-        .frame(width: size, height: size)
-        .onChange(of: spinning, initial: true) { _, now in
-            if now {
-                spinStart = Date()
-            } else if let start = spinStart {
-                angleAtPause += Date().timeIntervalSince(start) * degreesPerSecond
-                spinStart = nil
+        let provider = ArtworkProvider.shared
+        ZStack {
+            if let image, enabled {
+                SpinLayer(image: image, size: size, spinning: player.isPlaying,
+                          trackID: track?.id ?? "", secondsPerTurn: secondsPerTurn)
+            } else {
+                ArtworkView(track: track, size: size, circle: true)   // 关掉旋转或没封面时：正着放
             }
         }
-        .onChange(of: track?.id) { _, _ in
-            angleAtPause = 0
-            spinStart = spinning ? Date() : nil
-        }
-        .onChange(of: enabled) { _, on in
-            if !on { withAnimation(.easeOut(duration: 0.4)) { angleAtPause = 0 } }
+        .frame(width: size, height: size)
+        .task(id: "\(track?.path ?? "")#\(provider.revision)") {
+            guard let track else {
+                image = nil
+                return
+            }
+            image = provider.cachedImage(for: track, size: size)
+            image = await provider.image(for: track, size: size)
         }
     }
+}
 
-    private func angle(at date: Date) -> Double {
-        let running = spinStart.map { date.timeIntervalSince($0) * degreesPerSecond } ?? 0
-        return (angleAtPause + running).truncatingRemainder(dividingBy: 360)
+private struct SpinLayer: NSViewRepresentable {
+    let image: NSImage
+    let size: CGFloat
+    let spinning: Bool
+    let trackID: String
+    let secondsPerTurn: Double
+
+    func makeNSView(context: Context) -> SpinView { SpinView() }
+
+    func updateNSView(_ view: SpinView, context: Context) {
+        view.update(image: image, trackID: trackID, spinning: spinning, secondsPerTurn: secondsPerTurn)
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: SpinView, context: Context) -> CGSize? {
+        CGSize(width: size, height: size)
+    }
+
+    final class SpinView: NSView {
+        private let disc = CALayer()
+        private var trackID = ""
+        private var spinning = false
+        private static let key = "spin"
+
+        override init(frame: NSRect) {
+            super.init(frame: frame)
+            wantsLayer = true
+            disc.contentsGravity = .resizeAspectFill
+            disc.masksToBounds = true
+            layer?.addSublayer(disc)
+        }
+
+        required init?(coder: NSCoder) { fatalError() }
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }   // 点击交给外面的 SwiftUI
+
+        override func layout() {
+            super.layout()
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            disc.bounds = bounds
+            disc.position = CGPoint(x: bounds.midX, y: bounds.midY)
+            disc.cornerRadius = bounds.width / 2
+            CATransaction.commit()
+        }
+
+        override func viewDidChangeBackingProperties() {
+            super.viewDidChangeBackingProperties()
+            disc.contentsScale = window?.backingScaleFactor ?? 2
+        }
+
+        func update(image: NSImage, trackID: String, spinning: Bool, secondsPerTurn: Double) {
+            disc.contents = image
+            if trackID != self.trackID || disc.animation(forKey: Self.key) == nil {
+                // 换歌：回正，重新开始
+                self.trackID = trackID
+                disc.removeAnimation(forKey: Self.key)
+                disc.speed = 1
+                disc.timeOffset = 0
+                disc.beginTime = 0
+                let spin = CABasicAnimation(keyPath: "transform.rotation.z")
+                spin.fromValue = 0
+                spin.toValue = -2 * Double.pi   // 顺时针
+                spin.duration = secondsPerTurn
+                spin.repeatCount = .infinity
+                spin.isRemovedOnCompletion = false
+                disc.add(spin, forKey: Self.key)
+                self.spinning = true
+                if !spinning { pause() }
+            } else if spinning != self.spinning {
+                spinning ? resume() : pause()
+            }
+        }
+
+        /// 停在当前角度
+        private func pause() {
+            guard spinning else { return }
+            spinning = false
+            let now = disc.convertTime(CACurrentMediaTime(), from: nil)
+            disc.speed = 0
+            disc.timeOffset = now
+        }
+
+        /// 从停下的角度接着转
+        private func resume() {
+            guard !spinning else { return }
+            spinning = true
+            let paused = disc.timeOffset
+            disc.speed = 1
+            disc.timeOffset = 0
+            disc.beginTime = 0
+            disc.beginTime = disc.convertTime(CACurrentMediaTime(), from: nil) - paused
+        }
     }
 }

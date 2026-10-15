@@ -11,7 +11,12 @@ final class ArtworkProvider {
     /// 联网下载到新封面后 +1，界面据此刷新
     private(set) var revision = 0
 
-    @ObservationIgnored private let cache = NSCache<NSString, NSImage>()
+    /// 最多缓存 400 张（列表缩略图 + 正在播放的大图），内存紧张时系统也会自动清理
+    @ObservationIgnored private let cache: NSCache<NSString, NSImage> = {
+        let cache = NSCache<NSString, NSImage>()
+        cache.countLimit = 400
+        return cache
+    }()
     @ObservationIgnored private var missing = Set<String>()
     static let buckets: [CGFloat] = [56, 200, 400]
 

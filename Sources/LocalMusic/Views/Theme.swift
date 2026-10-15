@@ -176,20 +176,27 @@ struct CapsuleBar: View {
 private struct ShineBand: View {
     let width: CGFloat
     let height: CGFloat
-    private let sweep = 1.7, cycle = 3.5
+
+    /// 光带的三个阶段：回到左边 → 1.7 秒滑过 → 停 1.8 秒
+    private enum Phase: CaseIterable { case start, sweep, rest }
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 30)) { context in
-            let t = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: cycle)
-            let band = min(88, width * 0.6)
-            let x = t < sweep ? -band + (width + band) * (t / sweep) : -band * 2
-            LinearGradient(colors: [Theme.shine.opacity(0), Theme.shine.opacity(0.5), Theme.shine.opacity(0)],
-                           startPoint: .leading, endPoint: .trailing)
-                .frame(width: band, height: height)
-                .offset(x: x)
-                .frame(width: width, height: height, alignment: .leading)
-        }
-        .allowsHitTesting(false)
+        let band = min(88, width * 0.6)
+        // 用 SwiftUI 动画插值，不用每帧重算界面
+        LinearGradient(colors: [Theme.shine.opacity(0), Theme.shine.opacity(0.5), Theme.shine.opacity(0)],
+                       startPoint: .leading, endPoint: .trailing)
+            .frame(width: band, height: height)
+            .phaseAnimator(Phase.allCases) { content, phase in
+                content.offset(x: phase == .start ? -band : width + (phase == .rest ? 1 : 0))
+            } animation: { phase in
+                switch phase {
+                case .start: return nil                  // 瞬间回到左边
+                case .sweep: return .linear(duration: 1.7)
+                case .rest: return .linear(duration: 1.8)   // 在右边外面等着
+                }
+            }
+            .frame(width: width, height: height, alignment: .leading)
+            .allowsHitTesting(false)
     }
 }
 

@@ -34,18 +34,18 @@ final class PlayerController {
     private(set) var queue: [Track] = []
     private(set) var index = 0
     private(set) var isPlaying = false
-    private(set) var currentTime: Double = 0
+    private(set) var currentTime: Double = 0 { didSet { refreshLyricIndex() } }
     private(set) var duration: Double = 0
     private(set) var shuffle = false
     private(set) var repeatMode: RepeatMode = .all
     var showNowPlaying = false
     var showLyrics = false
 
-    private(set) var lyrics: [LyricLine] = []
+    private(set) var lyrics: [LyricLine] = [] { didSet { refreshLyricIndex() } }
     private(set) var lyricsState: LyricsState = .idle
     private(set) var lyricsSource: LyricsSource?
     /// 歌词时间调整（秒）：正数表示歌词提前出现，负数表示延后。每首歌单独保存
-    private(set) var lyricOffset: Double = 0
+    private(set) var lyricOffset: Double = 0 { didSet { refreshLyricIndex() } }
     private(set) var isFetchingOnline = false
     /// 不为 nil 时显示「联网搜索」面板
     var searchTarget: Track?
@@ -72,7 +72,14 @@ final class PlayerController {
 
     var sleepActive: Bool { sleepDeadline != nil || stopAfterCurrent }
 
-    var currentLyricIndex: Int? { LRCParser.index(in: lyrics, at: currentTime + 0.15 + lyricOffset) }
+    /// 当前唱到第几行。播放时间每 0.25 秒更新一次，但只有换行时才改这个值，
+    /// 所以歌词页、底部播放条那句歌词不会每 0.25 秒整个重画一遍
+    private(set) var currentLyricIndex: Int?
+
+    private func refreshLyricIndex() {
+        let index = LRCParser.index(in: lyrics, at: currentTime + 0.15 + lyricOffset)
+        if index != currentLyricIndex { currentLyricIndex = index }
+    }
 
     // MARK: 歌词时间调整
 
