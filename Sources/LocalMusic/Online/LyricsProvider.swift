@@ -4,11 +4,15 @@ enum LyricsSource: String {
     case embedded = "文件内嵌"
     case lrcFile = "LRC 文件"
     case online = "网络"
+    case manual = "手动选择"
 }
 
-/// 本地歌词加载顺序：文件内嵌 → 同名 .lrc 文件 → 之前联网下载的缓存
+/// 本地歌词加载顺序：在「联网搜索」里手动选的 → 文件内嵌 → 同名 .lrc 文件 → 之前联网下载的缓存
 enum LyricsProvider {
     static func local(for track: Track) async -> (text: String, source: LyricsSource)? {
+        if let text = OnlineMedia.manualLyrics(track), !text.isBlank {
+            return (text, .manual)
+        }
         if let text = await MetadataReader.embeddedLyrics(url: track.url) {
             return (text, .embedded)
         }

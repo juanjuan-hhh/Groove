@@ -2,7 +2,7 @@ import AppKit
 import ImageIO
 import Observation
 
-/// 封面加载顺序：文件内嵌 → 同文件夹的 cover.jpg / folder.jpg → 之前联网下载的缓存
+/// 封面加载顺序：在「联网搜索」里手动选的 → 文件内嵌 → 同文件夹的 cover.jpg / folder.jpg → 之前联网下载的缓存
 @MainActor
 @Observable
 final class ArtworkProvider {
@@ -48,6 +48,7 @@ final class ArtworkProvider {
     }
 
     nonisolated static func loadData(for track: Track) async -> Data? {
+        if let data = OnlineMedia.manualCover(track) { return data }
         if let data = await MetadataReader.embeddedArtwork(url: track.url) { return data }
         let folder = URL(fileURLWithPath: track.folderPath)
         for name in ["cover.jpg", "cover.png", "folder.jpg", "folder.png", "front.jpg", "Cover.jpg", "Folder.jpg", "AlbumArt.jpg"] {

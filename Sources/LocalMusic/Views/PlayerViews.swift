@@ -201,8 +201,13 @@ struct NowPlayingView: View {
                     Text("歌词来源：\(source.rawValue)")
                     Divider()
                 }
-                Button(player.isFetchingOnline ? "正在联网搜索…" : "联网搜索封面和歌词") { player.searchOnline() }
-                    .disabled(player.isFetchingOnline)
+                Button("联网搜索封面和歌词…") { player.openOnlineSearch() }
+                if let track = player.current {
+                    Button("删除歌词（只删 App 下载的）") { Task { await player.deleteOnlineLyrics(for: track) } }
+                        .disabled(player.lyricsSource != .online && player.lyricsSource != .manual)
+                    Button("删除封面（只删 App 下载的）") { Task { await player.deleteOnlineCover(for: track) } }
+                        .disabled(!OnlineMedia.hasOnlineCover(track))
+                }
                 Divider()
                 LyricOffsetMenuItems()
                 if let track = player.current {
@@ -459,7 +464,7 @@ struct LyricsView: View {
         case .notFound:
             VStack(spacing: 14) {
                 Text("暂无歌词").font(.ui(18, .semibold)).foregroundStyle(Theme.text2)
-                Button { player.searchOnline() } label: {
+                Button { player.openOnlineSearch() } label: {
                     ChipText(text: player.isFetchingOnline ? "正在搜索…" : "联网搜索歌词", color: Theme.accent,
                              font: .ui(14, .bold), hPad: 18, vPad: 8)
                 }

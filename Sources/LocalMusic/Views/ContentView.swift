@@ -64,6 +64,11 @@ struct ContentView: View {
         .foregroundStyle(Theme.text)
         .background(Theme.bg)
         .toolbarBackground(Theme.bg, for: .windowToolbar)
+        .sheet(item: Binding(get: { player.searchTarget }, set: { player.searchTarget = $0 })) { track in
+            OnlineSearchView(track: track)
+                .environment(player)
+                .preferredColorScheme(.dark)
+        }
         .alert("新建歌单", isPresented: Binding(
             get: { library.playlistDraft != nil },
             set: { if !$0 { library.playlistDraft = nil } }

@@ -47,6 +47,8 @@ final class PlayerController {
     /// 歌词时间调整（秒）：正数表示歌词提前出现，负数表示延后。每首歌单独保存
     private(set) var lyricOffset: Double = 0
     private(set) var isFetchingOnline = false
+    /// 不为 nil 时显示「联网搜索」面板
+    var searchTarget: Track?
 
     private(set) var sleepDeadline: Date?
     private(set) var stopAfterCurrent = false
@@ -309,18 +311,59 @@ final class PlayerController {
             self.nowPlayingArtwork = art
             self.updateNowPlayingInfo()
 
-            if AppSettings.autoFetchOnline && (local == nil || art == nil) {
-                await self.fetchOnline(for: track, lyrics: local == nil, cover: art == nil)
+            // 用户删过的不再自动下载
+            let wantLyrics = local == nil && !OnlineMedia.isLyricsBlocked(track)
+            let wantCover = art == nil && !OnlineMedia.isCoverBlocked(track)
+            if AppSettings.autoFetchOnline && (wantLyrics || wantCover) {
+                await self.fetchOnline(for: track, lyrics: wantLyrics, cover: wantCover)
+                if local == nil && !wantLyrics { self.lyricsState = .notFound }
             } else if local == nil {
                 self.lyricsState = .notFound
             }
         }
     }
 
-    /// 手动联网搜索（菜单里的"联网搜索封面和歌词"）
-    func searchOnline(for track: Track? = nil) {
-        guard let track = track ?? current else { return }
-        Task { await fetchOnline(for: track, lyrics: true, cover: true) }
+    // MARK: 联网搜索面板
+
+    /// 打开「联网搜索」面板，列出各个来源的结果让用户自己选
+    func openOnlineSearch(for track: Track? = nil) {
+        searchTarget = track ?? current
+    }
+
+    /// 用面板里选的歌词，之后一直优先用它
+    func applyManualLyrics(_ text: String, for track: Track) {
+        OnlineMedia.saveManualLyrics(text, for: track)
+        if current?.id == track.id { applyLyrics(text, source: .manual) }
+    }
+
+    func applyManualCover(_ data: Data, for track: Track) async {
+        OnlineMedia.saveManualCover(data, for: track)
+        await refreshCover(for: track)
+    }
+
+    /// 删除 App 下载/选择的歌词（不动音乐文件），然后按顺序重新找本地的
+    func deleteOnlineLyrics(for track: Track) async {
+        OnlineMedia.deleteOnlineLyrics(track)
+        guard current?.id == track.id else { return }
+        if let local = await LyricsProvider.local(for: track) {
+            applyLyrics(local.text, source: local.source)
+        } else {
+            lyrics = []
+            lyricsSource = nil
+            lyricsState = .notFound
+        }
+    }
+
+    func deleteOnlineCover(for track: Track) async {
+        OnlineMedia.deleteOnlineCover(track)
+        await refreshCover(for: track)
+    }
+
+    private func refreshCover(for track: Track) async {
+        ArtworkProvider.shared.invalidate(track)
+        guard current?.id == track.id else { return }
+        nowPlayingArtwork = await ArtworkProvider.shared.image(for: track, size: 400)
+        updateNowPlayingInfo()
     }
 
     private func fetchOnline(for track: Track, lyrics wantLyrics: Bool, cover wantCover: Bool) async {

@@ -48,6 +48,67 @@ enum OnlineMedia {
         try? String(contentsOf: lyricsFile(track), encoding: .utf8)
     }
 
+    // MARK: 手动选择（在「联网搜索」面板里选的，优先级最高）
+
+    static func manualCoverFile(_ track: Track) -> URL {
+        AppPaths.dir("Covers").appendingPathComponent(cacheKey(track) + ".manual.jpg")
+    }
+
+    static func manualLyricsFile(_ track: Track) -> URL {
+        AppPaths.dir("Lyrics").appendingPathComponent(cacheKey(track) + ".manual.lrc")
+    }
+
+    static func manualCover(_ track: Track) -> Data? {
+        try? Data(contentsOf: manualCoverFile(track))
+    }
+
+    static func manualLyrics(_ track: Track) -> String? {
+        try? String(contentsOf: manualLyricsFile(track), encoding: .utf8)
+    }
+
+    /// 有没有 App 下载或手动选择的封面（只看文件在不在，不读内容）
+    static func hasOnlineCover(_ track: Track) -> Bool {
+        FileManager.default.fileExists(atPath: manualCoverFile(track).path)
+            || FileManager.default.fileExists(atPath: coverFile(track).path)
+    }
+
+    /// 删掉后留一个标记，自动联网不再给这首歌下载（手动搜索不受影响）
+    private static func blockFile(_ track: Track, kind: String) -> URL {
+        AppPaths.dir(kind).appendingPathComponent(cacheKey(track) + ".none")
+    }
+
+    static func isCoverBlocked(_ track: Track) -> Bool {
+        FileManager.default.fileExists(atPath: blockFile(track, kind: "Covers").path)
+    }
+
+    static func isLyricsBlocked(_ track: Track) -> Bool {
+        FileManager.default.fileExists(atPath: blockFile(track, kind: "Lyrics").path)
+    }
+
+    static func saveManualCover(_ data: Data, for track: Track) {
+        try? data.write(to: manualCoverFile(track))
+        try? FileManager.default.removeItem(at: blockFile(track, kind: "Covers"))
+    }
+
+    static func saveManualLyrics(_ text: String, for track: Track) {
+        try? text.write(to: manualLyricsFile(track), atomically: true, encoding: .utf8)
+        try? FileManager.default.removeItem(at: blockFile(track, kind: "Lyrics"))
+    }
+
+    /// 只删 App 自己下载/选择的封面，不动音乐文件
+    static func deleteOnlineCover(_ track: Track) {
+        try? FileManager.default.removeItem(at: manualCoverFile(track))
+        try? FileManager.default.removeItem(at: coverFile(track))
+        FileManager.default.createFile(atPath: blockFile(track, kind: "Covers").path, contents: nil)
+    }
+
+    /// 只删 App 自己下载/选择的歌词，不动音乐文件和同名 .lrc
+    static func deleteOnlineLyrics(_ track: Track) {
+        try? FileManager.default.removeItem(at: manualLyricsFile(track))
+        try? FileManager.default.removeItem(at: lyricsFile(track))
+        FileManager.default.createFile(atPath: blockFile(track, kind: "Lyrics").path, contents: nil)
+    }
+
     // MARK: 网络
 
     private static let session: URLSession = {
@@ -57,7 +118,7 @@ enum OnlineMedia {
         return URLSession(configuration: config)
     }()
 
-    private static func getData(_ url: URL) async throws -> Data {
+    static func getData(_ url: URL) async throws -> Data {
         let (data, response) = try await session.data(from: url)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
         return data
@@ -287,7 +348,11 @@ enum OnlineMedia {
         // 酷狗已按匹配度排序，优先取时长接近的
         guard let best = candidates.first(where: closeDuration) ?? candidates.first,
               let id = best.id, let key = best.accesskey else { return nil }
+        return await kugouDownloadLyrics(id: id, accessKey: key)
+    }
 
+    /// 按酷狗歌词的 id 和 accesskey 下载 LRC
+    static func kugouDownloadLyrics(id: String, accessKey key: String) async -> String? {
         var dl = URLComponents(string: "https://lyrics.kugou.com/download")!
         dl.queryItems = [
             URLQueryItem(name: "ver", value: "1"),
