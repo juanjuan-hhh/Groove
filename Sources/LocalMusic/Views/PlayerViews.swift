@@ -3,55 +3,71 @@ import SwiftUI
 
 // MARK: 底部迷你播放条
 
+/// 一直显示在底部；还没放歌时显示「未在播放」，点播放键从整个歌曲库开始放
 struct MiniPlayerBar: View {
     @Environment(PlayerController.self) private var player
+    @Environment(LibraryStore.self) private var library
     @State private var showQueue = false
     /// 左边（封面 + 歌名）和右边（播放按钮）各占多宽，用来算中间歌词能用多宽
     @State private var leftWidth: CGFloat = 0
     @State private var rightWidth: CGFloat = 0
 
     var body: some View {
-        if let track = player.current {
-            VStack(spacing: 0) {
-                MiniProgressLine()
+        let track = player.current
+        VStack(spacing: 0) {
+            MiniProgressLine()
+            HStack(spacing: 12) {
                 HStack(spacing: 12) {
-                    HStack(spacing: 12) {
-                        ArtworkView(track: track, size: 44)
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(track.title).font(.ui(14, .bold)).foregroundStyle(Theme.text).lineLimit(1)
-                            Text(track.artist).font(.ui(12)).foregroundStyle(Theme.text2).lineLimit(1)
-                        }
-                        .frame(maxWidth: 240, alignment: .leading)
+                    ArtworkView(track: track, size: 44)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(track?.title ?? "未在播放").font(.ui(14, .bold))
+                            .foregroundStyle(track == nil ? Theme.text2 : Theme.text).lineLimit(1)
+                        Text(track?.artist ?? (library.tracks.isEmpty ? "先添加音乐文件夹" : "双击一首歌，或点播放键开始"))
+                            .font(.ui(12)).foregroundStyle(Theme.text2).lineLimit(1)
                     }
-                    .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { leftWidth = $0 }
-                    Spacer(minLength: 12)
-                    controls
-                        .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { rightWidth = $0 }
+                    .frame(maxWidth: 240, alignment: .leading)
                 }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 8)
-                .foregroundStyle(Theme.text)
-                // 歌词放在整条的正中间；左右各让出较宽一边的宽度，保证不压到歌名和按钮
-                .overlay {
-                    GeometryReader { geo in
-                        let side = max(leftWidth, rightWidth) + 20 + 16
-                        MiniLyricLine()
-                            .frame(width: max(0, geo.size.width - side * 2))
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    }
+                .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { leftWidth = $0 }
+                Spacer(minLength: 12)
+                controls
+                    .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { rightWidth = $0 }
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 8)
+            .foregroundStyle(Theme.text)
+            // 歌词放在整条的正中间；左右各让出较宽一边的宽度，保证不压到歌名和按钮
+            .overlay {
+                GeometryReader { geo in
+                    let side = max(leftWidth, rightWidth) + 20 + 16
+                    MiniLyricLine()
+                        .frame(width: max(0, geo.size.width - side * 2))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
-            .background(Theme.card)
-            .contentShape(Rectangle())
-            .onTapGesture { player.showNowPlaying = true }
-            .help("点击打开正在播放")
         }
+        .background(Theme.card)
+        .contentShape(Rectangle())
+        .onTapGesture { if track != nil { player.showNowPlaying = true } }
+        .help(track == nil ? "" : "点击打开正在播放")
+    }
+
+    /// 还没放歌时按播放：按当前排序从整个歌曲库开始放（开了随机就随机）
+    private func playOrStart() {
+        if player.current != nil {
+            player.togglePlayPause()
+            return
+        }
+        let all = library.sorted(library.tracks, by: library.sort, ascending: library.ascending)
+        guard !all.isEmpty else { return }
+        if player.shuffle { player.playShuffled(all) } else { player.play(all) }
     }
 
     private var controls: some View {
-        HStack(spacing: 12) {
+        let idle = player.current == nil
+        return HStack(spacing: 12) {
             IconButton(systemName: "backward.end.fill", size: 16, help: "上一首") { player.previous() }
-            Button { player.togglePlayPause() } label: {
+                .disabled(idle).opacity(idle ? 0.35 : 1)
+            Button { playOrStart() } label: {
                 Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
                     .font(.system(size: 16, weight: .bold))
                     .foregroundStyle(Theme.ink)
@@ -61,15 +77,19 @@ struct MiniPlayerBar: View {
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
-            .help(player.isPlaying ? "暂停" : "播放")
+            .disabled(idle && library.tracks.isEmpty)
+            .help(idle ? "从歌曲库开始播放" : (player.isPlaying ? "暂停" : "播放"))
             IconButton(systemName: "forward.end.fill", size: 16, help: "下一首") { player.next() }
+                .disabled(idle).opacity(idle ? 0.35 : 1)
             IconButton(systemName: "list.bullet", size: 16, help: "播放队列") { showQueue.toggle() }
                 .popover(isPresented: $showQueue, arrowEdge: .top) {
                     QueueView().environment(player)
                 }
+                .disabled(idle).opacity(idle ? 0.35 : 1)
             IconButton(systemName: "circle.circle", size: 16, help: "切换到悬浮球（⇧⌘M）") {
                 FloatingBall.shared.enter(player: player)
             }
+            .disabled(idle).opacity(idle ? 0.35 : 1)
         }
     }
 }
