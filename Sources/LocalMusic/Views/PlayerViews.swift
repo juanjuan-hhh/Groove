@@ -134,6 +134,8 @@ struct NowPlayingView: View {
                     if player.showLyrics {
                         LyricsView()
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .mask(LyricsFadeMask())
+                            .padding(.top, 22)
                         if player.hasSyncedLyrics {
                             LyricOffsetControl().padding(.bottom, 14)
                         }
@@ -321,6 +323,20 @@ private struct ProgressRing: View {
         }
         .padding(-14)
         .allowsHitTesting(false)
+    }
+}
+
+/// 歌词区上下边缘渐隐：滚到顶部 / 底部的歌词慢慢淡出，而不是被一刀切掉
+private struct LyricsFadeMask: View {
+    var top: CGFloat = 70
+    var bottom: CGFloat = 56
+
+    var body: some View {
+        VStack(spacing: 0) {
+            LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom).frame(height: top)
+            Rectangle().fill(.black)
+            LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom).frame(height: bottom)
+        }
     }
 }
 
