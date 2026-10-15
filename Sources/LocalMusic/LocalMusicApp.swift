@@ -57,6 +57,7 @@ struct LocalMusicApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     weak var player: PlayerController?
     private var keyMonitor: Any?
+    private var titleBarMonitor: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
@@ -65,6 +66,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
 
         // 空格键播放/暂停（在搜索框里打字时不拦截）
+        // 双击最上面的标题栏也是铺满 / 恢复，而不是系统默认的缩放
+        titleBarMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { event in
+            guard event.clickCount == 2, let window = event.window,
+                  window.styleMask.contains(.titled), !window.styleMask.contains(.fullScreen),
+                  event.locationInWindow.y > window.contentLayoutRect.maxY else { return event }
+            MainActor.assumeIsolated { WindowFill.handleDoubleClick(window) }
+            return nil
+        }
+
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             guard event.keyCode == 49, modifiers.subtracting([.capsLock, .numericPad, .function]).isEmpty else { return event }

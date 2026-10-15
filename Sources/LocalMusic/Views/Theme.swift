@@ -126,7 +126,7 @@ private struct ShineBand: View {
     }
 }
 
-/// 放在顶栏背后：空白处可以拖动窗口，双击缩放（和标题栏一样）。按钮、搜索框在它上面，不受影响
+/// 放在顶栏背后：空白处可以拖动窗口，双击铺满屏幕 / 恢复（见 WindowFill）。按钮、搜索框在它上面，不受影响
 struct WindowDragArea: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView { DragView() }
     func updateNSView(_ nsView: NSView, context: Context) {}
@@ -136,12 +136,7 @@ struct WindowDragArea: NSViewRepresentable {
 
         override func mouseDown(with event: NSEvent) {
             if event.clickCount == 2 {
-                // 跟随系统设置「连按窗口标题栏以…」：缩放或最小化
-                if UserDefaults.standard.string(forKey: "AppleActionOnDoubleClick") == "Minimize" {
-                    window?.performMiniaturize(nil)
-                } else {
-                    window?.performZoom(nil)
-                }
+                if let window { WindowFill.handleDoubleClick(window) }
             } else {
                 window?.performDrag(with: event)
             }
