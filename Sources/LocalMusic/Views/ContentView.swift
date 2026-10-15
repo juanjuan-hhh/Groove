@@ -15,11 +15,13 @@ struct ContentView: View {
     @State private var tab: LibraryTab = .songs
     @State private var searchText = ""
     @State private var newPlaylistName = ""
+    /// 正在播放页完全盖住歌曲库时为 true（见下面的 onChange）
+    @State private var libraryCovered = false
 
     var body: some View {
         ZStack {
             VStack(spacing: 0) {
-                TopBar(tab: $tab, searchText: $searchText)
+                TopBar(tab: $tab, searchText: $searchText, searchActive: !libraryCovered)
                 ThemeDivider()
                 Group {
                     if library.folders.isEmpty {
@@ -47,6 +49,18 @@ struct ContentView: View {
             }
         }
         .animation(.easeInOut(duration: 0.28), value: player.showNowPlaying)
+        // 搜索框是 AppKit 输入框，被正在播放页盖住后鼠标经过还是会变成输入光标（I 形）。
+        // 滑入动画结束后把它换成一样的静态文字，收起时马上换回来。
+        .onChange(of: player.showNowPlaying) { _, showing in
+            guard showing else {
+                libraryCovered = false
+                return
+            }
+            Task {
+                try? await Task.sleep(for: .milliseconds(320))
+                if player.showNowPlaying { libraryCovered = true }
+            }
+        }
         .foregroundStyle(Theme.text)
         .background(Theme.bg)
         .toolbarBackground(Theme.bg, for: .windowToolbar)
@@ -67,6 +81,8 @@ struct ContentView: View {
 struct TopBar: View {
     @Binding var tab: LibraryTab
     @Binding var searchText: String
+    /// false 时搜索框换成静态文字（被正在播放页盖住时）
+    var searchActive = true
     @Environment(LibraryStore.self) private var library
     @AppStorage(AppSettings.autoFetchKey) private var autoFetch = true
 
@@ -99,9 +115,17 @@ struct TopBar: View {
 
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass").foregroundStyle(Theme.text2)
-                TextField("搜索歌名、歌手、拼音", text: $searchText)
-                    .textFieldStyle(.plain)
-                    .font(.ui(13))
+                if searchActive {
+                    TextField("搜索歌名、歌手、拼音", text: $searchText)
+                        .textFieldStyle(.plain)
+                        .font(.ui(13))
+                } else {
+                    Text(searchText.isEmpty ? "搜索歌名、歌手、拼音" : searchText)
+                        .font(.ui(13))
+                        .foregroundStyle(searchText.isEmpty ? Theme.text3 : Theme.text)
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
                 if !searchText.isEmpty {
                     Button { searchText = "" } label: {
                         Image(systemName: "xmark.circle.fill").foregroundStyle(Theme.text2)
