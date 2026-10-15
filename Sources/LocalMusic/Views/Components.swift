@@ -187,6 +187,14 @@ struct SpinningArtwork: View {
     @AppStorage(SpinningArtwork.enabledKey) private var enabled = true
     @State private var image: NSImage?
 
+    init(track: Track?, size: CGFloat, secondsPerTurn: Double = 20.0) {
+        self.track = track
+        self.size = size
+        self.secondsPerTurn = secondsPerTurn
+        // 内存里已有的封面直接用：打开正在播放页的第一帧就是转盘，不会先放一张静态图再「跳」成转盘
+        _image = State(initialValue: track.flatMap { ArtworkProvider.shared.cachedImage(for: $0, size: size) })
+    }
+
     var body: some View {
         let provider = ArtworkProvider.shared
         ZStack {
@@ -216,7 +224,9 @@ private struct SpinLayer: NSViewRepresentable {
     let trackID: String
     let secondsPerTurn: Double
 
-    func makeNSView(context: Context) -> SpinView { SpinView() }
+    func makeNSView(context: Context) -> SpinView {
+        SpinView(frame: NSRect(x: 0, y: 0, width: size, height: size))   // 一开始就是最终大小
+    }
 
     func updateNSView(_ view: SpinView, context: Context) {
         view.update(image: image, trackID: trackID, spinning: spinning, secondsPerTurn: secondsPerTurn)
@@ -237,6 +247,12 @@ private struct SpinLayer: NSViewRepresentable {
             wantsLayer = true
             disc.contentsGravity = .resizeAspectFill
             disc.masksToBounds = true
+            // 换图、改大小时不要系统默认的淡入 / 缩放动画（否则打开页面时封面会「跳」一下）
+            disc.actions = ["contents": NSNull(), "bounds": NSNull(), "position": NSNull(), "cornerRadius": NSNull()]
+            disc.bounds = bounds
+            disc.position = CGPoint(x: bounds.midX, y: bounds.midY)
+            disc.cornerRadius = bounds.width / 2
+            disc.contentsScale = NSScreen.main?.backingScaleFactor ?? 2   // 第一帧就清晰
             layer?.addSublayer(disc)
         }
 
