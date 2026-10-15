@@ -286,30 +286,55 @@ struct FloatingBallView: View {
         .help(player.current.map { "\($0.title) — \($0.artist)\n双击回到主窗口" } ?? "双击回到主窗口")
     }
 
-    /// 藏起一半时的样子：不显示封面；露出来的半圆边就是整条进度（从上到下），
-    /// 露出来那半边的中间显示播放 / 暂停状态
+    /// 藏起一半时的样子（Porthole / App 图标的元素）：不显示封面；
+    /// 露出来的半圆边是整条进度（从上到下），进度头上有个小光点，里面一圈石板蓝细环；
+    /// 中间播放时是三根跳动的音柱，暂停时是播放三角
     private func tuckedFace(edge: FloatingBall.DockEdge, fraction: Double) -> some View {
         // 贴右边时露出左半边，进度从顶部沿左边走到底部；贴左边时反过来
         let mirror: CGFloat = edge == .right ? -1 : 1
+        let inner: CGFloat = ring + 9
         return ZStack {
-            Circle()
-                .trim(from: 0, to: 0.5)
-                .stroke(Theme.track, style: StrokeStyle(lineWidth: ring, lineCap: .round))
-                .rotationEffect(.degrees(-90))
-                .scaleEffect(x: mirror, y: 1)
-                .padding(ring / 2)
-            Circle()
-                .trim(from: 0, to: 0.5 * fraction)
-                .stroke(Theme.accent, style: StrokeStyle(lineWidth: ring, lineCap: .round))
-                .rotationEffect(.degrees(-90))
-                .scaleEffect(x: mirror, y: 1)
-                .padding(ring / 2)
-            Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                .font(.system(size: 18, weight: .bold))
-                .foregroundStyle(Theme.accent)
-                .offset(x: mirror * size / 4 + (edge == .right ? 2 : -2))
+            halfArc(to: 1, color: Theme.track, width: ring, inset: ring / 2, mirror: mirror)
+            halfArc(to: fraction, color: Theme.accent, width: ring, inset: ring / 2, mirror: mirror)
+            halfArc(to: 1, color: Theme.slate, width: 2, inset: inner, mirror: mirror)
+            progressDot(fraction: fraction, mirror: mirror)
+
+            Group {
+                if player.isPlaying {
+                    EqualizerBars()
+                } else {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundStyle(Theme.accent)
+                }
+            }
+            .offset(x: mirror * size / 4 + (edge == .right ? 3 : -3))
+            .transition(.opacity)
         }
+        .animation(.easeInOut(duration: 0.2), value: player.isPlaying)
         .allowsHitTesting(false)
+    }
+
+    /// 从顶部开始、沿露出来的那半边走的半圆弧，to 是 0…1
+    private func halfArc(to value: Double, color: Color, width: CGFloat, inset: CGFloat, mirror: CGFloat) -> some View {
+        Circle()
+            .trim(from: 0, to: 0.5 * max(0, min(1, value)))
+            .stroke(color, style: StrokeStyle(lineWidth: width, lineCap: .round))
+            .rotationEffect(.degrees(-90))
+            .scaleEffect(x: mirror, y: 1)
+            .padding(inset)
+    }
+
+    /// 进度头上的小光点
+    private func progressDot(fraction: Double, mirror: CGFloat) -> some View {
+        let r = size / 2 - ring / 2
+        let theta = Double.pi * max(0, min(1, fraction))
+        return Circle()
+            .fill(Theme.shine)
+            .frame(width: 5, height: 5)
+            .shadow(color: Theme.accent.opacity(0.8), radius: 3)
+            .offset(x: mirror * r * CGFloat(sin(theta)), y: -r * CGFloat(cos(theta)))
+            .opacity(fraction > 0.01 ? 1 : 0)
     }
 
     /// 鼠标移上去时的按钮
@@ -349,5 +374,27 @@ struct FloatingBallView: View {
         }
         .buttonStyle(.plain)
         .help(help)
+    }
+}
+
+
+/// 三根跳动的音柱（赭橙 / 芥末黄 / 鼠尾草绿），悬浮球藏起一半、正在播放时显示
+private struct EqualizerBars: View {
+    private let colors = [Theme.terra, Theme.mustard, Theme.sage]
+    private let speeds = [5.1, 6.7, 4.3]
+    private let phases = [0.0, 1.3, 2.4]
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1 / 30)) { context in
+            let t = context.date.timeIntervalSinceReferenceDate
+            HStack(alignment: .bottom, spacing: 3) {
+                ForEach(0..<3, id: \.self) { i in
+                    Capsule()
+                        .fill(colors[i])
+                        .frame(width: 4, height: 6 + 12 * abs(sin(t * speeds[i] + phases[i])))
+                }
+            }
+            .frame(height: 18, alignment: .bottom)
+        }
     }
 }
