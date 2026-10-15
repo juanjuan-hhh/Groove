@@ -286,7 +286,7 @@ struct NowPlayingView: View {
     private func cover(in size: CGSize) -> some View {
         let side = max(150, min(340, size.height - 420, size.width - 96))
         return VStack(spacing: 30) {
-            ArtworkView(track: player.current, size: side, circle: true)
+            SpinningArtwork(track: player.current, size: side)
                 .overlay { ProgressRing() }
                 .shadow(color: .black.opacity(0.5), radius: 24, y: 10)
                 .onTapGesture { player.showLyrics = true }

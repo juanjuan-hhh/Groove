@@ -172,3 +172,47 @@ struct GroupRow<Leading: View>: View {
         .onHover { hovering = $0 }
     }
 }
+
+/// 播放时像唱片一样慢慢转的圆形封面（正在播放页、悬浮球用）。
+/// 暂停就停在原处，继续播放从停下的角度接着转；换歌时回正。齿轮菜单里可以关掉。
+struct SpinningArtwork: View {
+    let track: Track?
+    let size: CGFloat
+    var degreesPerSecond = 18.0   // 20 秒转一圈
+
+    static let enabledKey = "spinCover"
+
+    @Environment(PlayerController.self) private var player
+    @AppStorage(SpinningArtwork.enabledKey) private var enabled = true
+    @State private var angleAtPause: Double = 0
+    @State private var spinStart: Date?
+
+    var body: some View {
+        let spinning = enabled && player.isPlaying
+        TimelineView(.animation(minimumInterval: 1 / 30, paused: !spinning)) { context in
+            ArtworkView(track: track, size: size, circle: true)
+                .rotationEffect(.degrees(angle(at: context.date)))
+        }
+        .frame(width: size, height: size)
+        .onChange(of: spinning, initial: true) { _, now in
+            if now {
+                spinStart = Date()
+            } else if let start = spinStart {
+                angleAtPause += Date().timeIntervalSince(start) * degreesPerSecond
+                spinStart = nil
+            }
+        }
+        .onChange(of: track?.id) { _, _ in
+            angleAtPause = 0
+            spinStart = spinning ? Date() : nil
+        }
+        .onChange(of: enabled) { _, on in
+            if !on { withAnimation(.easeOut(duration: 0.4)) { angleAtPause = 0 } }
+        }
+    }
+
+    private func angle(at date: Date) -> Double {
+        let running = spinStart.map { date.timeIntervalSince($0) * degreesPerSecond } ?? 0
+        return (angleAtPause + running).truncatingRemainder(dividingBy: 360)
+    }
+}

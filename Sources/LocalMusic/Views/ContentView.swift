@@ -91,6 +91,7 @@ struct TopBar: View {
     @Environment(LibraryStore.self) private var library
     @AppStorage(AppSettings.autoFetchKey) private var autoFetch = true
     @AppStorage(AppearanceMode.key) private var appearance: AppearanceMode = .dark
+    @AppStorage(SpinningArtwork.enabledKey) private var spinCover = true
 
     var body: some View {
         HStack(spacing: 14) {
@@ -160,6 +161,7 @@ struct TopBar: View {
                 }
                 Divider()
                 Toggle("自动联网获取缺少的封面和歌词", isOn: $autoFetch)
+                Toggle("播放时旋转封面", isOn: $spinCover)
                 Picker("外观", selection: $appearance) {
                     ForEach(AppearanceMode.allCases) { Text($0.label).tag($0) }
                 }

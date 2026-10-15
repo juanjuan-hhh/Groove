@@ -121,23 +121,16 @@ private final class FirstClickHostingView<Content: View>: NSHostingView<Content>
 struct FloatingBallView: View {
     @Environment(PlayerController.self) private var player
     private var hovering: Bool { FloatingBall.shared.hovering }
-    /// 封面转角：暂停时记下转到的角度，继续播放时从这里接着转
-    @State private var angleAtPause: Double = 0
-    @State private var spinStart: Date?
 
     private let size = FloatingBall.size
     private let ring: CGFloat = 5
-    private let degreesPerSecond = 18.0   // 20 秒转一圈
 
     var body: some View {
         let fraction = player.duration > 0 ? min(1, player.currentTime / player.duration) : 0
         ZStack {
             Circle().fill(Theme.card)
-            TimelineView(.animation(minimumInterval: 1 / 30, paused: !player.isPlaying)) { context in
-                ArtworkView(track: player.current, size: size - ring * 2 - 6, circle: true)
-                    .rotationEffect(.degrees(angle(at: context.date)))
-            }
-            .allowsHitTesting(false)
+            SpinningArtwork(track: player.current, size: size - ring * 2 - 6)
+                .allowsHitTesting(false)
 
             // 进度环
             Circle().stroke(Theme.track, lineWidth: ring).padding(ring / 2)
@@ -161,14 +154,6 @@ struct FloatingBallView: View {
                 .onEnded { _ in FloatingBall.shared.endDrag() }
         )
         .onTapGesture(count: 2) { FloatingBall.shared.exit() }
-        .onChange(of: player.isPlaying, initial: true) { _, playing in
-            if playing {
-                spinStart = Date()
-            } else if let start = spinStart {
-                angleAtPause += Date().timeIntervalSince(start) * degreesPerSecond
-                spinStart = nil
-            }
-        }
         .contextMenu {
             if let track = player.current {
                 Text("\(track.title) — \(track.artist)")
@@ -181,11 +166,6 @@ struct FloatingBallView: View {
             Button("返回主窗口") { FloatingBall.shared.exit() }
         }
         .help(player.current.map { "\($0.title) — \($0.artist)\n双击回到主窗口" } ?? "双击回到主窗口")
-    }
-
-    private func angle(at date: Date) -> Double {
-        let running = spinStart.map { date.timeIntervalSince($0) * degreesPerSecond } ?? 0
-        return (angleAtPause + running).truncatingRemainder(dividingBy: 360)
     }
 
     /// 鼠标移上去时的按钮
