@@ -134,6 +134,9 @@ struct NowPlayingView: View {
                     if player.showLyrics {
                         LyricsView()
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        if player.hasSyncedLyrics {
+                            LyricOffsetControl().padding(.bottom, 14)
+                        }
                     } else {
                         cover(in: geo.size)
                             .frame(maxHeight: .infinity)
@@ -200,6 +203,8 @@ struct NowPlayingView: View {
                 }
                 Button(player.isFetchingOnline ? "正在联网搜索…" : "联网搜索封面和歌词") { player.searchOnline() }
                     .disabled(player.isFetchingOnline)
+                Divider()
+                LyricOffsetMenuItems()
                 if let track = player.current {
                     Button("在访达中显示") { NSWorkspace.shared.activateFileViewerSelecting([track.url]) }
                 }
@@ -311,6 +316,68 @@ private struct ProgressRing: View {
         }
         .padding(-14)
         .allowsHitTesting(false)
+    }
+}
+
+/// 歌词时间调整：[延后 0.5s] 当前调整量 [提前 0.5s]，点中间复位
+struct LyricOffsetControl: View {
+    @Environment(PlayerController.self) private var player
+
+    var body: some View {
+        let step = PlayerController.lyricOffsetStep
+        HStack(spacing: 4) {
+            stepButton("minus", "延后", help: "歌词延后 0.5 秒（歌词比歌快时用）") { player.adjustLyricOffset(by: -step) }
+            Button { player.resetLyricOffset() } label: {
+                Text(player.lyricOffsetLabel)
+                    .font(.ui(13, .bold).monospacedDigit())
+                    .foregroundStyle(player.lyricOffset == 0 ? Theme.text2 : Theme.ink)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 6)
+                    .background(Capsule().fill(player.lyricOffset == 0 ? .clear : Theme.accent))
+                    .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .disabled(player.lyricOffset == 0)
+            .help("点击复位")
+            stepButton("plus", "提前", help: "歌词提前 0.5 秒（歌词比歌慢时用）") { player.adjustLyricOffset(by: step) }
+        }
+        .padding(4)
+        .background(Capsule().fill(Theme.card))
+        .animation(.easeInOut(duration: 0.15), value: player.lyricOffset)
+    }
+
+    private func stepButton(_ symbol: String, _ text: String, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: symbol).font(.system(size: 10, weight: .heavy))
+                Text("\(text) 0.5s").font(.ui(12, .bold))
+            }
+            .foregroundStyle(Theme.text)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(Capsule().fill(Theme.surface))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .help(help)
+    }
+}
+
+/// 菜单里的歌词时间调整（正在播放页的 ⋯ 菜单和顶部「播放」菜单共用）
+struct LyricOffsetMenuItems: View {
+    @Environment(PlayerController.self) private var player
+    var showShortcuts = false
+
+    var body: some View {
+        let step = PlayerController.lyricOffsetStep
+        Button("歌词提前 0.5 秒（歌词慢了）") { player.adjustLyricOffset(by: step) }
+            .disabled(!player.hasSyncedLyrics)
+            .keyboardShortcut(showShortcuts ? KeyboardShortcut("]", modifiers: [.command, .option]) : nil)
+        Button("歌词延后 0.5 秒（歌词快了）") { player.adjustLyricOffset(by: -step) }
+            .disabled(!player.hasSyncedLyrics)
+            .keyboardShortcut(showShortcuts ? KeyboardShortcut("[", modifiers: [.command, .option]) : nil)
+        Button("歌词时间复位（\(player.lyricOffsetLabel)）") { player.resetLyricOffset() }
+            .disabled(player.lyricOffset == 0)
     }
 }
 
@@ -435,7 +502,7 @@ private struct SyncedLyrics: View {
                             .multilineTextAlignment(.center)
                             .frame(maxWidth: .infinity)
                             .contentShape(Rectangle())
-                            .onTapGesture { if let t = line.time { player.seek(to: t) } }
+                            .onTapGesture { if let t = line.time { player.seek(toLyric: t) } }
                             .id(line.id)
                     }
                     Color.clear.frame(height: 160)

@@ -44,6 +44,8 @@ final class PlayerController {
     private(set) var lyrics: [LyricLine] = []
     private(set) var lyricsState: LyricsState = .idle
     private(set) var lyricsSource: LyricsSource?
+    /// 歌词时间调整（秒）：正数表示歌词提前出现，负数表示延后。每首歌单独保存
+    private(set) var lyricOffset: Double = 0
     private(set) var isFetchingOnline = false
 
     private(set) var sleepDeadline: Date?
@@ -68,7 +70,47 @@ final class PlayerController {
 
     var sleepActive: Bool { sleepDeadline != nil || stopAfterCurrent }
 
-    var currentLyricIndex: Int? { LRCParser.index(in: lyrics, at: currentTime + 0.15) }
+    var currentLyricIndex: Int? { LRCParser.index(in: lyrics, at: currentTime + 0.15 + lyricOffset) }
+
+    // MARK: 歌词时间调整
+
+    static let lyricOffsetStep = 0.5
+
+    var hasSyncedLyrics: Bool { lyrics.first?.time != nil }
+
+    /// 例如 "歌词提前 0.5s"、"歌词延后 1.0s"、"歌词已同步"
+    var lyricOffsetLabel: String {
+        if lyricOffset == 0 { return "歌词已同步" }
+        return String(format: "歌词%@ %.1fs", lyricOffset > 0 ? "提前" : "延后", abs(lyricOffset))
+    }
+    private static let lyricOffsetsKey = "lyricOffsets"
+
+    /// 歌词提前（正数）或延后（负数）调整，每次 0.5 秒
+    func adjustLyricOffset(by delta: Double) {
+        setLyricOffset(lyricOffset + delta)
+    }
+
+    func resetLyricOffset() {
+        setLyricOffset(0)
+    }
+
+    /// 点某一行歌词时跳到的位置（扣掉调整量）
+    func seek(toLyric time: Double) {
+        seek(to: time - lyricOffset)
+    }
+
+    private func setLyricOffset(_ value: Double) {
+        guard let track = current else { return }
+        let rounded = (value * 2).rounded() / 2   // 保持 0.5 的整数倍，避免浮点误差累积
+        lyricOffset = rounded
+        var all = UserDefaults.standard.dictionary(forKey: Self.lyricOffsetsKey) as? [String: Double] ?? [:]
+        all[track.path] = rounded == 0 ? nil : rounded
+        UserDefaults.standard.set(all, forKey: Self.lyricOffsetsKey)
+    }
+
+    private static func savedLyricOffset(for track: Track) -> Double {
+        (UserDefaults.standard.dictionary(forKey: lyricOffsetsKey) as? [String: Double])?[track.path] ?? 0
+    }
 
     init() {
         let interval = CMTime(seconds: 0.25, preferredTimescale: 600)
@@ -253,6 +295,7 @@ final class PlayerController {
         extrasTask?.cancel()
         lyrics = []
         lyricsSource = nil
+        lyricOffset = Self.savedLyricOffset(for: track)
         lyricsState = .loading
         nowPlayingArtwork = nil
 

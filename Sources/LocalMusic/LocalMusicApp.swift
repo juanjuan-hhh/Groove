@@ -41,6 +41,8 @@ struct LocalMusicApp: App {
                 Button("随机播放：\(player.shuffle ? "开" : "关")") { player.toggleShuffle() }
                 Button("循环模式：\(player.repeatMode.label)") { player.cycleRepeat() }
                 Divider()
+                LyricOffsetMenuItems(showShortcuts: true).environment(player)
+                Divider()
                 Button(player.showNowPlaying ? "返回歌曲列表" : "打开正在播放") {
                     player.showNowPlaying.toggle()
                 }
