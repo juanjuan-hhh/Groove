@@ -8,7 +8,7 @@ struct LocalMusicApp: App {
     @State private var player = PlayerController()
 
     var body: some Scene {
-        WindowGroup("Groove") {
+        WindowGroup("Groove", id: "main") {
             ContentView()
                 .environment(library)
                 .environment(player)
@@ -16,9 +16,15 @@ struct LocalMusicApp: App {
                 .modifier(ThemedAppearance())
                 .tint(Theme.accent)
                 .onAppear { appDelegate.player = player }
+                .background(OpenWindowCapture(delegate: appDelegate))
         }
         .defaultSize(width: 980, height: 740)
         .commands {
+            // 「窗口」菜单：随时把主窗口叫出来（收起了、关掉了、在悬浮球模式都行）
+            CommandGroup(after: .windowArrangement) {
+                Button("Groove 主窗口") { appDelegate.showMainWindow() }
+                    .keyboardShortcut("0")
+            }
             CommandGroup(replacing: .newItem) {
                 Button("添加音乐文件夹…") { library.addFolder() }
                     .keyboardShortcut("o")
@@ -96,26 +102,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
     // 悬浮球模式下点 Dock 图标：回到主窗口
-    // 点程序坞图标：
-    // 悬浮球模式 → 回到主窗口；窗口被「−」收进程序坞 → 放出来；窗口被藏起来了 → 显示出来；
-    // 窗口已经关掉了 → 交给系统新开一个
+    /// 用 SwiftUI 打开一个新的主窗口（主窗口被关掉时用；由 OpenWindowCapture 设好）
+    var openMainWindow: (() -> Void)?
+
+    // 点程序坞图标：统一交给 showMainWindow
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        showMainWindow()
+        return false
+    }
+
+    /// 把主窗口叫出来：悬浮球模式 → 回主窗口；被「−」收进程序坞 → 放出来；藏起来了 → 显示；关掉了 → 新开一个
+    func showMainWindow() {
         if FloatingBall.shared.isShown {
             FloatingBall.shared.exit()
-            return false
+            return
         }
-        let mainWindows = NSApp.windows.filter { !($0 is NSPanel) && $0.canBecomeMain }
-        if let minimized = mainWindows.first(where: \.isMiniaturized) {
+        NSApp.activate(ignoringOtherApps: true)
+        // 收起的窗口 canBecomeMain 是 false，所以单独找
+        let windows = NSApp.windows.filter { !($0 is NSPanel) && ($0.canBecomeMain || $0.isMiniaturized) }
+        if let minimized = windows.first(where: \.isMiniaturized) {
             minimized.deminiaturize(nil)
             minimized.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
-            return false
+        } else if let window = windows.first {
+            window.makeKeyAndOrderFront(nil)
+        } else {
+            openMainWindow?()
         }
-        if !flag, let hidden = mainWindows.first {
-            hidden.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
-            return false
-        }
-        return true
+    }}
+
+
+/// 记下 SwiftUI 的「打开窗口」动作，主窗口被关掉后点程序坞图标时用它新开一个
+private struct OpenWindowCapture: View {
+    let delegate: AppDelegate
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .onAppear {
+                let open = openWindow
+                delegate.openMainWindow = { open(id: "main") }
+            }
     }
 }
