@@ -226,8 +226,12 @@ struct NowPlayingView: View {
                                 .transition(.opacity)
                         }
                     } else {
-                        cover(in: geo.size)
-                            .frame(maxHeight: .infinity)
+                        // 封面按剩下的空间算大小，窗口矮时缩小，不会往上压到标题和歌手
+                        GeometryReader { area in
+                            cover(in: area.size)
+                                .frame(width: area.size.width, height: area.size.height)
+                        }
+                        .frame(maxHeight: .infinity)
                         functionRow.padding(.bottom, 14)
                     }
                     ProgressSection()
@@ -324,7 +328,8 @@ struct NowPlayingView: View {
     }
 
     private func cover(in size: CGSize) -> some View {
-        let side = max(150, min(340, size.height - 420, size.width - 96))
+        // 封面下面还有：进度环外扩 14×2、间距 30、当前歌词 48、间距 18、格式标签 26，上下再各留 12
+        let side = max(60, min(340, size.height - 176, size.width - 96))
         return VStack(spacing: 30) {
             SpinningArtwork(track: player.current, size: side)
                 .overlay { ProgressRing() }
