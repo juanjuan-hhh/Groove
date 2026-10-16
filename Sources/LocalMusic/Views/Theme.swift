@@ -230,8 +230,23 @@ struct WindowDragArea: NSViewRepresentable {
                     WindowFill.handleDoubleClick(window)
                 }
             } else {
-                window?.performDrag(with: event)   // 拖动结束（松开鼠标）才返回
+                dragWindow(from: event)
                 onDragEnd?()
+            }
+        }
+
+        /// 自己跟着鼠标挪窗口：位置 = 按下时的窗口位置 + 鼠标在全局屏幕坐标里走了多少。
+        /// 以前用系统的 performDrag，在几块屏幕之间拖时窗口会慢慢偏离鼠标（漂移）；
+        /// 这样每次都按全局坐标重新算，不累积误差（悬浮球也是这么拖的）。
+        private func dragWindow(from event: NSEvent) {
+            guard let window else { return }
+            let startMouse = NSEvent.mouseLocation
+            let startOrigin = window.frame.origin
+            while let next = window.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]) {
+                if next.type == .leftMouseUp { break }
+                let mouse = NSEvent.mouseLocation
+                window.setFrameOrigin(NSPoint(x: startOrigin.x + mouse.x - startMouse.x,
+                                              y: startOrigin.y + mouse.y - startMouse.y))
             }
         }
     }
