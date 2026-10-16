@@ -1,21 +1,18 @@
 // 生成 App 图标（贴近 Apple Music 图标的风格，外圈一条进度环）：
-//   swift tools/make-icon.swift Support/AppIcon-1024.png            深色版（黑底，打包进 .icns）
-//   swift tools/make-icon.swift Support/AppIcon-light.png --light   浅色版（白底，App 选浅色时用作程序坞图标）
+//   swift tools/make-icon.swift Support/AppIcon-1024.png
 // 然后用 sips + iconutil 生成 Support/AppIcon.icns。
 import AppKit
 func c(_ hex: UInt32, _ a: CGFloat = 1) -> CGColor {
     CGColor(srgbRed: CGFloat((hex >> 16) & 0xFF) / 255, green: CGFloat((hex >> 8) & 0xFF) / 255, blue: CGFloat(hex & 0xFF) / 255, alpha: a)
 }
 let N = 1024
-let light = CommandLine.arguments.contains("--light")
 // 风格贴近 macOS 的 Apple Music 图标：柔和的渐变圆角方块 + 居中的大号粗音符，
 // 外面留一圈进度环，颜色和音符一样作为 Groove 的标志。
-//                 深色版     浅色版
-let topColor    = light ? 0xFFFFFF : 0x2C2D32   // 底色渐变：上
-let bottomColor = light ? 0xE4E4E8 : 0x050506   // 底色渐变：下
-let edgeColor   = light ? 0xD9D9DE : 0x3A3C42
-let trackColor  = light ? 0xE2E0DC : 0x2A2C31
-let noteColor   = light ? 0x111114 : 0xF2E9D8
+let topColor    = 0xFFFFFF   // 底色渐变：上
+let bottomColor = 0xE4E4E8   // 底色渐变：下
+let edgeColor   = 0xD9D9DE
+let trackColor  = 0xE2E0DC
+let noteColor   = 0x111114
 let ctx = CGContext(data: nil, width: N, height: N, bitsPerComponent: 8, bytesPerRow: 0,
                     space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
 // macOS 图标网格：824 的圆角方块居中，带一点投影
@@ -31,7 +28,7 @@ ctx.addPath(squircle); ctx.clip()
 let bg = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB), colors: [c(UInt32(topColor)), c(UInt32(bottomColor))] as CFArray, locations: [0, 1])!
 ctx.drawLinearGradient(bg, start: CGPoint(x: 512, y: body.maxY), end: CGPoint(x: 512, y: body.minY), options: [])
 // 上半部分一层很淡的高光，显得有一点光泽
-let gloss = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB), colors: [c(0xFFFFFF, light ? 0.6 : 0.10), c(0xFFFFFF, 0)] as CFArray, locations: [0, 1])!
+let gloss = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB), colors: [c(0xFFFFFF, 0.6), c(0xFFFFFF, 0)] as CFArray, locations: [0, 1])!
 ctx.drawLinearGradient(gloss, start: CGPoint(x: 512, y: body.maxY), end: CGPoint(x: 512, y: body.midY), options: [])
 ctx.restoreGState()
 // 细边，让图标在同色的 Dock 上也有轮廓
@@ -68,7 +65,7 @@ let nctx = noteLayer.context!
 nctx.clip(to: noteRect, mask: cg)
 nctx.setFillColor(c(UInt32(noteColor))); nctx.fill(noteRect)
 ctx.saveGState()
-ctx.setShadow(offset: CGSize(width: 0, height: -8), blur: 18, color: c(0x000000, light ? 0.22 : 0.5))
+ctx.setShadow(offset: CGSize(width: 0, height: -8), blur: 18, color: c(0x000000, 0.22))
 ctx.draw(noteLayer, at: .zero)
 ctx.restoreGState()
 
