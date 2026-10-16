@@ -231,6 +231,7 @@ struct NowPlayingView: View {
                                 .frame(width: area.size.width, height: area.size.height)
                         }
                         .frame(maxHeight: .infinity)
+                        .padding(.top, 20)   // 和上面的歌名、歌手隔开一点
                         functionRow.padding(.bottom, 14)
                     }
                     ProgressSection()
