@@ -15,6 +15,11 @@ if [[ "$(xcode-select -p)" == *CommandLineTools* ]]; then
   [[ -n "$OLD_SDK" ]] && SDK_ARGS=(--sdk "$OLD_SDK")
 fi
 
+# 装了 Xcode 时编译成通用版（Apple 芯片 + Intel 都能用）；只有 Command Line Tools 时只能编本机架构
+if [[ "$(xcode-select -p)" != *CommandLineTools* ]]; then
+  SDK_ARGS+=(--arch arm64 --arch x86_64)
+fi
+
 swift build -c release --scratch-path "$SCRATCH" ${SDK_ARGS[@]+"${SDK_ARGS[@]}"}
 BIN_DIR="$(swift build -c release --scratch-path "$SCRATCH" ${SDK_ARGS[@]+"${SDK_ARGS[@]}"} --show-bin-path)"
 
@@ -24,6 +29,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN_DIR/LocalMusic" "$APP/Contents/MacOS/LocalMusic"
 cp Support/Info.plist "$APP/Contents/Info.plist"
 cp Support/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+xattr -cr "$APP"   # 先清掉 Finder 等加的扩展属性，不然签名校验不过
 codesign --force --sign - "$APP" >/dev/null 2>&1 || true
 
 # 安装到「应用程序」：先退出正在运行的旧版本，再替换。音乐库、歌单、设置都在

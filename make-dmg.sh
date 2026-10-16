@@ -11,6 +11,9 @@ OUT="dist/Groove-v$VERSION-macOS.dmg"
 STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT
 ditto "$APP" "$STAGE/Groove.app"
+xattr -cr "$STAGE/Groove.app"
+codesign --force --sign - "$STAGE/Groove.app"
+codesign --verify --deep --strict "$STAGE/Groove.app"
 ln -s /Applications "$STAGE/Applications"
 mkdir -p dist
 hdiutil create -volname Groove -srcfolder "$STAGE" -fs HFS+ -format UDZO -ov "$OUT" >/dev/null
