@@ -34,6 +34,7 @@ final class FloatingBall {
         panel.invalidateShadow()
         mainWindow?.orderOut(nil)
         tucked = false
+        tuckedEdge = nil   // 一出来是完整的球（转动的封面），等藏进去时才换成半圆的样子
         updateDock(for: panel.frame)
         scheduleTuck(after: 1.5)
         installMouseMonitor()
@@ -46,6 +47,7 @@ final class FloatingBall {
         UserDefaults.standard.set(NSStringFromPoint((tucked ? shownFrame : nil)?.origin ?? panel.frame.origin),
                                   forKey: Self.originKey)
         tucked = false
+        tuckedEdge = nil   // 上次藏着一半时退出：清掉，免得下次出来时完整的球显示成半圆的样子
         panel.orderOut(nil)
         NSApp.activate(ignoringOtherApps: true)
         (mainWindow ?? NSApp.windows.first { !($0 is NSPanel) && $0.canBecomeMain })?.makeKeyAndOrderFront(nil)
