@@ -245,6 +245,7 @@ struct NowPlayingView: View {
             IconButton(systemName: "circle.circle", size: 17, help: "切换到悬浮球（⇧⌘M）") {
                 FloatingBall.shared.enter(player: player)
             }
+            .foregroundStyle(Theme.accent)
             .padding(.top, 18)
             .padding(.trailing, 20)
         }
