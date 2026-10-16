@@ -19,6 +19,8 @@ struct LocalMusicApp: App {
                 .background(OpenWindowCapture(delegate: appDelegate))
         }
         .defaultSize(width: 980, height: 740)
+        // 隐藏标题栏：背景（正在播放页的模糊封面色）一直铺到窗口最上面，红绿灯浮在上面
+        .windowStyle(.hiddenTitleBar)
         .commands {
             // 「窗口」菜单：随时把主窗口叫出来（收起了、关掉了、在悬浮球模式都行）
             CommandGroup(after: .windowArrangement) {

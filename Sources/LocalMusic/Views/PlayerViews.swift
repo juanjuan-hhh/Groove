@@ -212,7 +212,6 @@ struct NowPlayingView: View {
     var body: some View {
         GeometryReader { geo in
             ZStack {
-                background(geo.size)
                 VStack(spacing: 0) {
                     header.padding(.top, 14).background(WindowDragArea())
                     if player.showLyrics {
@@ -244,7 +243,12 @@ struct NowPlayingView: View {
             }
         }
         .foregroundStyle(Theme.text)
-        .background(Theme.bg)
+        // 模糊的封面色一直铺到窗口最上面（标题栏下面）
+        .background {
+            GeometryReader { geo in background(geo.size) }
+                .ignoresSafeArea()
+                .padding(.top, -ContentView.titleBarHeight)
+        }
         // 关掉正在播放页时，歌词调整也一起关掉，下次打开是干净的
         .onDisappear { player.adjustingLyrics = false }
         .background {

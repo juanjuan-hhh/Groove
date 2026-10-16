@@ -19,6 +19,17 @@ struct ContentView: View {
     @State private var libraryCovered = false
 
     var body: some View {
+        // 标题栏隐藏后，顶上至少留出红绿灯那一条的高度（系统已经留了就不重复留）
+        GeometryReader { geo in
+            content.padding(.top, max(0, Self.titleBarHeight - geo.safeAreaInsets.top))
+        }
+        .foregroundStyle(Theme.text)
+        .background(Theme.bg.ignoresSafeArea())
+    }
+
+    static let titleBarHeight: CGFloat = 28
+
+    private var content: some View {
         ZStack {
             VStack(spacing: 0) {
                 TopBar(tab: $tab, searchText: $searchText, searchActive: !libraryCovered)
@@ -61,9 +72,6 @@ struct ContentView: View {
                 if player.showNowPlaying { libraryCovered = true }
             }
         }
-        .foregroundStyle(Theme.text)
-        .background(Theme.bg)
-        .toolbarBackground(Theme.bg, for: .windowToolbar)
         .sheet(item: Binding(get: { player.searchTarget }, set: { player.searchTarget = $0 })) { track in
             OnlineSearchView(track: track)
                 .environment(player)
