@@ -307,13 +307,15 @@ struct FloatingBallView: View {
                 Group {
                     SpinningArtwork(track: player.current, size: size - ring * 2 - 6)
 
-                    // 进度环
+                    // 进度环（和 App 图标一样：墨色 / 奶油色，进度头上一个圆点）
                     Circle().stroke(Theme.track, lineWidth: ring).padding(ring / 2)
                     Circle()
                         .trim(from: 0, to: fraction)
-                        .stroke(Theme.accent, style: StrokeStyle(lineWidth: ring, lineCap: .round))
+                        .stroke(Theme.text, style: StrokeStyle(lineWidth: ring, lineCap: .round))
                         .rotationEffect(.degrees(-90))
                         .padding(ring / 2)
+                    progressKnob(angle: 2 * .pi * fraction)
+                        .opacity(fraction > 0.01 ? 1 : 0)
                 }
                 .allowsHitTesting(false)
                 .transition(.opacity)
@@ -340,18 +342,17 @@ struct FloatingBallView: View {
         .help(player.current.map { "\($0.title) — \($0.artist)\n双击回到主窗口" } ?? "双击回到主窗口")
     }
 
-    /// 藏起一半时的样子（Porthole / App 图标的元素）：不显示封面；
-    /// 露出来的半圆边是整条进度（从上到下），进度头上有个小光点，里面一圈石板蓝细环；
+    /// 藏起一半时的样子（和 App 图标一样的配色）：不显示封面；
+    /// 露出来的半圆边是整条进度（从上到下），进度头上有个圆点；
     /// 中间播放时是三根跳动的音柱，暂停时是播放三角
     private func tuckedFace(edge: FloatingBall.DockEdge, fraction: Double) -> some View {
         // 贴右边时露出左半边，进度从顶部沿左边走到底部；贴左边时反过来
         let mirror: CGFloat = edge == .right ? -1 : 1
-        let inner: CGFloat = ring + 9
         return ZStack {
             halfArc(to: 1, color: Theme.track, width: ring, inset: ring / 2, mirror: mirror)
-            halfArc(to: fraction, color: Theme.accent, width: ring, inset: ring / 2, mirror: mirror)
-            halfArc(to: 1, color: Theme.slate, width: 2, inset: inner, mirror: mirror)
-            progressDot(fraction: fraction, mirror: mirror)
+            halfArc(to: fraction, color: Theme.text, width: ring, inset: ring / 2, mirror: mirror)
+            progressKnob(angle: .pi * max(0, min(1, fraction)), mirror: mirror)
+                .opacity(fraction > 0.01 ? 1 : 0)
 
             Group {
                 if player.isPlaying {
@@ -359,10 +360,10 @@ struct FloatingBallView: View {
                 } else {
                     Image(systemName: "play.fill")
                         .font(.system(size: 17, weight: .bold))
-                        .foregroundStyle(Theme.accent)
+                        .foregroundStyle(Theme.text)
                 }
             }
-            .offset(x: mirror * size / 4 + (edge == .right ? 10 : -10))   // 往球心挪一点，离蓝圈远些
+            .offset(x: mirror * size / 4 + (edge == .right ? 10 : -10))   // 往球心挪一点
             .transition(.opacity)
         }
         .animation(.easeInOut(duration: 0.2), value: player.isPlaying)
@@ -379,16 +380,13 @@ struct FloatingBallView: View {
             .padding(inset)
     }
 
-    /// 进度头上的小光点
-    private func progressDot(fraction: Double, mirror: CGFloat) -> some View {
+    /// 进度头上的圆点（像 App 图标进度环末端那个）；angle 从正上方顺时针算
+    private func progressKnob(angle: Double, mirror: CGFloat = 1) -> some View {
         let r = size / 2 - ring / 2
-        let theta = Double.pi * max(0, min(1, fraction))
         return Circle()
-            .fill(Theme.shine)
-            .frame(width: 5, height: 5)
-            .shadow(color: Theme.accent.opacity(0.8), radius: 3)
-            .offset(x: mirror * r * CGFloat(sin(theta)), y: -r * CGFloat(cos(theta)))
-            .opacity(fraction > 0.01 ? 1 : 0)
+            .fill(Theme.text)
+            .frame(width: ring * 1.8, height: ring * 1.8)
+            .offset(x: mirror * r * CGFloat(sin(angle)), y: -r * CGFloat(cos(angle)))
     }
 
     /// 鼠标移上去时的按钮
@@ -400,10 +398,10 @@ struct FloatingBallView: View {
                 Button { player.togglePlayPause() } label: {
                     Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
                         .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(Theme.ink)
+                        .foregroundStyle(Theme.bg)
                         .offset(x: player.isPlaying ? 0 : 1)
                         .frame(width: 34, height: 34)
-                        .background(Circle().fill(Theme.accent))
+                        .background(Circle().fill(Theme.text))
                         .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
@@ -432,9 +430,8 @@ struct FloatingBallView: View {
 }
 
 
-/// 三根跳动的音柱（赭橙 / 芥末黄 / 鼠尾草绿），悬浮球藏起一半、正在播放时显示
+/// 三根跳动的音柱（和 App 图标一样的墨色 / 奶油色），悬浮球藏起一半、正在播放时显示
 private struct EqualizerBars: View {
-    private let colors = [Theme.terra, Theme.mustard, Theme.sage]
     private let peaks: [CGFloat] = [18, 13, 16]
     private let durations = [0.42, 0.55, 0.36]   // 三根节奏不一样
     @State private var up = false
@@ -444,7 +441,7 @@ private struct EqualizerBars: View {
         HStack(alignment: .bottom, spacing: 3) {
             ForEach(0..<3, id: \.self) { i in
                 Capsule()
-                    .fill(colors[i])
+                    .fill(Theme.text)
                     .frame(width: 4, height: up ? peaks[i] : 5)
                     .animation(.easeInOut(duration: durations[i]).repeatForever(autoreverses: true), value: up)
             }
