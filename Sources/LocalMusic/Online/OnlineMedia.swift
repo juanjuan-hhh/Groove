@@ -442,8 +442,16 @@ enum OnlineMedia {
     }
 
     private static func kugouLyrics(_ track: Track) async -> String? {
-        // 只用歌名搜，再靠时长挑最像的（带上歌手反而容易搜不到）
-        let keyword = track.title
+        // 先用「歌手 - 歌名」搜（2026-10 起只用歌名搜，热门歌常常一条都不返回），搜不到再只用歌名
+        var keywords = [track.title]
+        if track.hasKnownArtist { keywords.insert("\(track.artist) - \(track.title)", at: 0) }
+        for keyword in keywords {
+            if let text = await kugouLyrics(track, keyword: keyword) { return text }
+        }
+        return nil
+    }
+
+    private static func kugouLyrics(_ track: Track, keyword: String) async -> String? {
         var comps = URLComponents(string: "https://lyrics.kugou.com/search")!
         var query = [
             URLQueryItem(name: "ver", value: "1"),

@@ -548,8 +548,8 @@ enum FloatingLyricsMode: String, CaseIterable, Identifiable {
     var label: String {
         switch self {
         case .off: return "关闭"
-        case .hover: return "鼠标移上去显示"
-        case .always: return "一直显示"
+        case .hover: return "鼠标放置显示"
+        case .always: return "始终显示"
         }
     }
 }
