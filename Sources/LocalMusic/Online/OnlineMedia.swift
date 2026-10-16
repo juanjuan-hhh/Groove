@@ -156,6 +156,17 @@ enum OnlineMedia {
         return data
     }
 
+    static func postJSON(_ url: URL, body: Data, referer: String? = nil) async throws -> Data {
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.httpBody = body
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let referer { request.setValue(referer, forHTTPHeaderField: "Referer") }
+        let (data, response) = try await session.data(for: request)
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
+        return data
+    }
+
     // MARK: 封面
 
     private struct ITunesResponse: Decodable {
@@ -243,9 +254,10 @@ enum OnlineMedia {
 
     static let qqReferer = "https://y.qq.com"
 
-    struct QQSearch: Decodable {
-        struct Singer: Decodable { let name: String? }
-        struct Item: Decodable {
+    /// 搜索结果里的一首歌（字段名沿用旧接口的，别处都按这个用）
+    struct QQSearch {
+        struct Singer { let name: String? }
+        struct Item {
             let songmid: String?
             let songname: String?
             let singer: [Singer]?
@@ -253,23 +265,50 @@ enum OnlineMedia {
             let albummid: String?
             let interval: Int?   // 秒
         }
-        struct SongList: Decodable { let list: [Item] }
-        struct Payload: Decodable { let song: SongList }
-        let data: Payload
     }
 
-    /// QQ 音乐歌曲搜索
+    /// 新搜索接口（u.y.qq.com/cgi-bin/musicu.fcg）返回的格式
+    private struct QQMusicuResponse: Decodable {
+        struct Named: Decodable { let mid: String?; let name: String? }
+        struct Song: Decodable {
+            let mid: String?
+            let name: String?
+            let singer: [Named]?
+            let album: Named?
+            let interval: Int?
+        }
+        struct SongList: Decodable { let list: [Song] }
+        struct Body: Decodable { let song: SongList }
+        struct DataField: Decodable { let body: Body }
+        struct Req: Decodable { let code: Int; let data: DataField? }
+        let req: Req
+    }
+
+    /// QQ 音乐歌曲搜索。旧接口 c.y.qq.com/soso/fcgi-bin/client_search_cp 在 2026-10 停用了（一直返回 500），
+    /// 改用 QQ 音乐网页版自己用的 musicu.fcg。偶尔连不上时隔一会儿再试一次。
     static func qqSearch(_ keyword: String, count: Int) async -> [QQSearch.Item]? {
-        var comps = URLComponents(string: "https://c.y.qq.com/soso/fcgi-bin/client_search_cp")!
-        comps.queryItems = [
-            URLQueryItem(name: "w", value: keyword),
-            URLQueryItem(name: "format", value: "json"),
-            URLQueryItem(name: "n", value: String(count)),
-            URLQueryItem(name: "p", value: "1"),
+        let body: [String: Any] = [
+            "comm": ["ct": "19", "cv": "1859", "uin": "0"],
+            "req": [
+                "module": "music.search.SearchCgiService",
+                "method": "DoSearchForQQMusicDesktop",
+                "param": ["query": keyword, "num_per_page": count, "page_num": 1, "search_type": 0, "grp": 1],
+            ],
         ]
-        guard let url = comps.url, let data = try? await getData(url, referer: qqReferer),
-              let response = try? JSONDecoder().decode(QQSearch.self, from: data) else { return nil }
-        return response.data.song.list
+        guard let url = URL(string: "https://u.y.qq.com/cgi-bin/musicu.fcg"),
+              let json = try? JSONSerialization.data(withJSONObject: body) else { return nil }
+        for attempt in 0..<2 {
+            if attempt > 0 { try? await Task.sleep(for: .milliseconds(600)) }
+            guard let data = try? await postJSON(url, body: json, referer: qqReferer),
+                  let response = try? JSONDecoder().decode(QQMusicuResponse.self, from: data),
+                  response.req.code == 0, let songs = response.req.data?.body.song.list else { continue }
+            return songs.map {
+                QQSearch.Item(songmid: $0.mid, songname: $0.name,
+                              singer: $0.singer?.map { QQSearch.Singer(name: $0.name) },
+                              albumname: $0.album?.name, albummid: $0.album?.mid, interval: $0.interval)
+            }
+        }
+        return nil
     }
 
     /// 按 songmid 下载 QQ 音乐的 LRC 歌词
