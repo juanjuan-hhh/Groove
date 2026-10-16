@@ -6,7 +6,7 @@ A native SwiftUI local music player for macOS 14+, with lyrics, cover art fetchi
 
 ## 下载安装
 
-到 [Releases](../../releases) 下载 `Groove-v1.0-macOS.zip`，解压后把 `Groove.app` 拖进「应用程序」文件夹。
+到 [Releases](../../releases) 下载 `Groove-v1.0-macOS.dmg`，双击打开，把 `Groove` 拖到旁边的「应用程序」文件夹就装好了。
 
 App 没有经过 Apple 公证，第一次打开时系统会拦一下：在「应用程序」里**右键 Groove → 打开**，再点「打开」就行（只需要一次）。如果还是打不开，到「系统设置 → 隐私与安全性」里点「仍要打开」。
 
@@ -18,7 +18,7 @@ App 没有经过 Apple 公证，第一次打开时系统会拦一下：在「应
 ./build-app.sh
 ```
 
-它会编译、打包，并安装到 `/Applications/Groove.app`（`build/Groove.app` 里也留一份）；旧版本正在运行的话会先退出，装好后再打开。也可以双击 `Package.swift` 用 Xcode 打开调试。
+它会编译、打包，并安装到 `/Applications/Groove.app`（`build/Groove.app` 里也留一份）；旧版本正在运行的话会先退出，装好后再打开。也可以双击 `Package.swift` 用 Xcode 打开调试。之后运行 `./make-dmg.sh` 可以做成安装用的 dmg（放在 `dist/`）。
 
 ## 功能
 
