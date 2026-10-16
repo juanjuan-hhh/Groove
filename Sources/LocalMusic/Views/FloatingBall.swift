@@ -10,6 +10,10 @@ final class FloatingBall {
     static let shared = FloatingBall()
 
     static let size: CGFloat = 96
+    /// 贴边藏起一半时缩小到这么大
+    static let tuckedSize: CGFloat = 66
+    /// 现在球画多大（藏起一半时变小），界面跟着它变
+    private(set) var ballSize: CGFloat = FloatingBall.size
     private static let originKey = "floatingBallOrigin"
 
     /// 鼠标是否在球上（用 AppKit 的跟踪区域检测，Groove 不在前台时也有效）
@@ -35,6 +39,8 @@ final class FloatingBall {
         mainWindow?.orderOut(nil)
         tucked = false
         tuckedEdge = nil   // 一出来是完整的球（转动的封面），等藏进去时才换成半圆的样子
+        ballSize = Self.size
+        panel.setContentSize(NSSize(width: Self.size, height: Self.size))
         updateDock(for: panel.frame)
         scheduleTuck(after: 1.5)
         installMouseMonitor()
@@ -111,6 +117,11 @@ final class FloatingBall {
 
     private func beginDrag(from press: NSPoint) {
         guard let panel else { return }
+        // 还是缩小的样子就先恢复成完整大小
+        if tucked, let shown = shownFrame {
+            panel.setFrame(shown, display: true)
+            ballSize = Self.size
+        }
         dragStart = (press, panel.frame.origin)
         cancelTuck()
         dock = nil
@@ -195,18 +206,23 @@ final class FloatingBall {
         tuckTask = nil
     }
 
-    /// 滑出去一半，只露半个球
+    /// 缩小一点、滑出去一半，只露半个球（上下中心不变）
     private func tuck() {
-        guard let dock, var frame = shownFrame, let screen = panel?.screen ?? NSScreen.main else { return }
+        guard let dock, let shown = shownFrame, let screen = panel?.screen ?? NSScreen.main else { return }
         let edge = screen.visibleFrame
-        frame.origin.x = dock == .left ? edge.minX - frame.width / 2 : edge.maxX - frame.width / 2
+        let side = Self.tuckedSize
+        let frame = NSRect(x: dock == .left ? edge.minX - side / 2 : edge.maxX - side / 2,
+                           y: shown.midY - side / 2, width: side, height: side)
         slide(to: frame, tucked: true)
     }
 
     private func slide(to frame: NSRect?, tucked: Bool) {
         guard let panel, let frame else { return }
         self.tucked = tucked
-        withAnimation(.easeInOut(duration: 0.2)) { tuckedEdge = tucked ? dock : nil }
+        withAnimation(.easeInOut(duration: 0.22)) {
+            tuckedEdge = tucked ? dock : nil
+            ballSize = frame.width
+        }
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.22
             context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
@@ -244,6 +260,7 @@ final class FloatingBall {
         panel.isReleasedWhenClosed = false
         let host = FirstClickHostingView(rootView: FloatingBallView().environment(player).modifier(ThemedAppearance()))
         host.frame = NSRect(x: 0, y: 0, width: Self.size, height: Self.size)
+        host.autoresizingMask = [.width, .height]
         panel.contentView = host
         return panel
     }
@@ -291,7 +308,8 @@ struct FloatingBallView: View {
     @Environment(PlayerController.self) private var player
     private var hovering: Bool { FloatingBall.shared.hovering }
 
-    private let size = FloatingBall.size
+    /// 藏起一半时变小
+    private var size: CGFloat { FloatingBall.shared.ballSize }
     private let ring: CGFloat = 5
 
     var body: some View {
@@ -363,7 +381,8 @@ struct FloatingBallView: View {
                         .foregroundStyle(Theme.text)
                 }
             }
-            .offset(x: mirror * size / 4 + (edge == .right ? 10 : -10))   // 往球心挪一点
+            .scaleEffect(min(1, size / 80))   // 球缩小了，音柱和三角也跟着小一点
+            .offset(x: mirror * size / 4 + (edge == .right ? 1 : -1) * size * 0.1)   // 往球心挪一点
             .transition(.opacity)
         }
         .animation(.easeInOut(duration: 0.2), value: player.isPlaying)
