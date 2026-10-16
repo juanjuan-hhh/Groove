@@ -47,6 +47,15 @@ ctx.addEllipse(in: CGRect(x: center.x - ringR, y: center.y - ringR, width: 2 * r
 ctx.setStrokeColor(c(UInt32(noteColor))); ctx.setLineWidth(ringW); ctx.setLineCap(.round)
 ctx.addArc(center: center, radius: ringR, startAngle: .pi / 2, endAngle: .pi / 2 - 250 * .pi / 180, clockwise: true)
 ctx.strokePath()
+// 进度环两头外面各一个小圆点，隔开一点，看起来是单独的点
+let dotSize = ringW * 1.6
+let dotOffset = (ringW / 2 + ringW * 0.6 + dotSize / 2) / ringR * 180 / .pi   // 圆点离进度环端点的角度
+for deg in [-dotOffset, 250 + dotOffset] {
+    let a = CGFloat.pi / 2 - deg * .pi / 180
+    let p = CGPoint(x: center.x + ringR * cos(a), y: center.y + ringR * sin(a))
+    ctx.setFillColor(c(UInt32(noteColor)))
+    ctx.fillEllipse(in: CGRect(x: p.x - dotSize / 2, y: p.y - dotSize / 2, width: dotSize, height: dotSize))
+}
 
 // 中间：大号粗音符，带一点柔和的阴影
 let config = NSImage.SymbolConfiguration(pointSize: 400, weight: .black)
