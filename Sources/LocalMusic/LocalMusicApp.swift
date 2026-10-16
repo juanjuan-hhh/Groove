@@ -96,9 +96,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
     // 悬浮球模式下点 Dock 图标：回到主窗口
+    // 点程序坞图标：
+    // 悬浮球模式 → 回到主窗口；窗口被「−」收进程序坞 → 放出来；窗口被藏起来了 → 显示出来；
+    // 窗口已经关掉了 → 交给系统新开一个
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if FloatingBall.shared.isShown {
             FloatingBall.shared.exit()
+            return false
+        }
+        let mainWindows = NSApp.windows.filter { !($0 is NSPanel) && $0.canBecomeMain }
+        if let minimized = mainWindows.first(where: \.isMiniaturized) {
+            minimized.deminiaturize(nil)
+            minimized.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return false
+        }
+        if !flag, let hidden = mainWindows.first {
+            hidden.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
             return false
         }
         return true
