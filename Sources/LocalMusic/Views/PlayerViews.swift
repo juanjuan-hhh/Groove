@@ -279,6 +279,12 @@ struct NowPlayingView: View {
         .clipped()
     }
 
+    /// 44100 → "44.1kHz"，96000 → "96kHz"
+    static func khz(_ rate: Double) -> String {
+        let k = rate / 1000
+        return k == k.rounded() ? "\(Int(k))kHz" : String(format: "%.1fkHz", k)
+    }
+
     private var header: some View {
         // 歌名和歌手放在整行正中间（左右按钮宽度不一样，放在 HStack 里会偏左）
         ZStack {
@@ -288,6 +294,12 @@ struct NowPlayingView: View {
                     .lineLimit(1)
                 HStack(spacing: 6) {
                     if let track = player.current { QualityBadge(quality: track.quality) }
+                    // 独占输出时显示设备实际的采样率，确认没有被重采样
+                    if let rate = ExclusiveOutput.shared.outputRate {
+                        ChipText(text: "输出 " + Self.khz(rate), color: Theme.surface, foreground: Theme.text,
+                                 font: .ui(10, .bold), hPad: 7, vPad: 2)
+                            .help("独占输出中，声卡现在的采样率")
+                    }
                     Text(player.current?.artist ?? "")
                         .font(.ui(13))
                         .foregroundStyle(Theme.text2)

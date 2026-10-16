@@ -60,6 +60,17 @@ struct ContentView: View {
                 MiniPlayerBar()
             }
 
+            if let notice = ExclusiveOutput.shared.notice {
+                VStack {
+                    Spacer()
+                    ChipText(text: notice, color: Theme.text, foreground: Theme.onText, font: .ui(12, .semibold), hPad: 14, vPad: 7)
+                        .padding(.bottom, 90)
+                }
+                .transition(.opacity)
+                .zIndex(2)
+                .allowsHitTesting(false)
+            }
+
             if player.showNowPlaying && player.current != nil {
                 NowPlayingView()
                     .transition(.move(edge: .bottom))
@@ -180,6 +191,8 @@ struct TopBar: View {
                     }
                 }
                 Divider()
+                OutputMenuItems()
+                Divider()
                 Toggle("自动联网获取缺少的封面和歌词", isOn: $autoFetch)
                 Toggle("播放时旋转封面", isOn: $spinCover)
                 Button("悬浮球大小…") { FloatingBall.shared.showSizeAdjuster(player: player) }
@@ -211,6 +224,19 @@ struct TopBar: View {
         .padding(.horizontal, 24)
         .padding(.vertical, 9)
         .background(WindowDragArea())
+    }
+}
+
+/// 设置菜单里的「输出设备」和「独占输出」
+private struct OutputMenuItems: View {
+    private var output: ExclusiveOutput { ExclusiveOutput.shared }
+
+    var body: some View {
+        Picker("输出设备", selection: Binding(get: { output.selectedUID }, set: { output.select($0) })) {
+            Text("跟随系统").tag("")
+            ForEach(output.devices) { Text($0.name).tag($0.uid) }
+        }
+        Toggle("独占输出（外接解码器用）", isOn: Binding(get: { output.enabled }, set: { output.setEnabled($0) }))
     }
 }
 

@@ -237,6 +237,7 @@ final class PlayerController {
 
     func resume() {
         guard player.currentItem != nil else { return }
+        if let track = current { ExclusiveOutput.shared.prepare(player: player, sampleRate: track.sampleRate) }
         player.play()
         isPlaying = true
         updateNowPlayingInfo()
@@ -244,6 +245,7 @@ final class PlayerController {
 
     func pause() {
         player.pause()
+        ExclusiveOutput.shared.paused()
         isPlaying = false
         updateNowPlayingInfo()
     }
@@ -302,6 +304,8 @@ final class PlayerController {
 
     private func load(autoplay: Bool) {
         guard let track = current else { return }
+        // 先选好输出设备；独占时按这首歌切采样率
+        ExclusiveOutput.shared.prepare(player: player, sampleRate: track.sampleRate)
         player.replaceCurrentItem(with: AVPlayerItem(url: track.url))
         currentTime = 0
         duration = track.duration
