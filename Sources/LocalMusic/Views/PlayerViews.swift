@@ -270,9 +270,8 @@ struct NowPlayingView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .center, spacing: 8) {
-            IconButton(systemName: "chevron.down", size: 20, help: "收起（Esc）") { player.showNowPlaying = false }
-            Spacer()
+        // 歌名和歌手放在整行正中间（左右按钮宽度不一样，放在 HStack 里会偏左）
+        ZStack {
             VStack(spacing: 4) {
                 Text(player.current?.title ?? "")
                     .font(.ui(16, .bold))
@@ -285,45 +284,49 @@ struct NowPlayingView: View {
                         .lineLimit(1)
                 }
             }
-            Spacer()
-            IconButton(systemName: player.showLyrics ? "photo" : "quote.bubble", size: 17,
-                       help: player.showLyrics ? "显示封面" : "显示歌词") {
-                player.showLyrics.toggle()
-            }
-            Menu {
-                if let source = player.lyricsSource {
-                    Text("歌词来源：\(source.rawValue)")
+            .padding(.horizontal, 90)
+            HStack(alignment: .center, spacing: 8) {
+                IconButton(systemName: "chevron.down", size: 20, help: "收起（Esc）") { player.showNowPlaying = false }
+                Spacer()
+                IconButton(systemName: player.showLyrics ? "photo" : "quote.bubble", size: 17,
+                           help: player.showLyrics ? "显示封面" : "显示歌词") {
+                    player.showLyrics.toggle()
+                }
+                Menu {
+                    if let source = player.lyricsSource {
+                        Text("歌词来源：\(source.rawValue)")
+                        Divider()
+                    }
+                    Button("联网搜索封面和歌词…") { player.openOnlineSearch() }
+                    if let track = player.current {
+                        Button("删除歌词（只删 App 下载的）") { Task { await player.deleteOnlineLyrics(for: track) } }
+                            .disabled(player.lyricsSource != .online && player.lyricsSource != .manual)
+                        Button("删除封面（只删 App 下载的）") { Task { await player.deleteOnlineCover(for: track) } }
+                            .disabled(!OnlineMedia.hasOnlineCover(track))
+                    }
                     Divider()
-                }
-                Button("联网搜索封面和歌词…") { player.openOnlineSearch() }
-                if let track = player.current {
-                    Button("删除歌词（只删 App 下载的）") { Task { await player.deleteOnlineLyrics(for: track) } }
-                        .disabled(player.lyricsSource != .online && player.lyricsSource != .manual)
-                    Button("删除封面（只删 App 下载的）") { Task { await player.deleteOnlineCover(for: track) } }
-                        .disabled(!OnlineMedia.hasOnlineCover(track))
-                }
-                Divider()
-                // 开启：切到歌词页，下方出现「延后 / 提前」按钮，点哪句歌词对齐哪句；关闭：收起（每次调整当时就已保存）
-                Button(player.adjustingLyrics ? "关闭歌词调整" : "开启歌词调整（\(player.lyricOffsetLabel)）") {
-                    withAnimation(.easeInOut(duration: 0.25)) {
-                        if player.adjustingLyrics {
-                            player.adjustingLyrics = false
-                        } else {
-                            player.adjustingLyrics = true
-                            player.showLyrics = true
+                    // 开启：切到歌词页，下方出现「延后 / 提前」按钮，点哪句歌词对齐哪句；关闭：收起（每次调整当时就已保存）
+                    Button(player.adjustingLyrics ? "关闭歌词调整" : "开启歌词调整（\(player.lyricOffsetLabel)）") {
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            if player.adjustingLyrics {
+                                player.adjustingLyrics = false
+                            } else {
+                                player.adjustingLyrics = true
+                                player.showLyrics = true
+                            }
                         }
                     }
+                    .disabled(!player.hasSyncedLyrics)
+                    if let track = player.current {
+                        Button("在访达中显示") { NSWorkspace.shared.activateFileViewerSelecting([track.url]) }
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle").font(.system(size: 17))
                 }
-                .disabled(!player.hasSyncedLyrics)
-                if let track = player.current {
-                    Button("在访达中显示") { NSWorkspace.shared.activateFileViewerSelecting([track.url]) }
-                }
-            } label: {
-                Image(systemName: "ellipsis.circle").font(.system(size: 17))
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
             }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
         }
     }
 
