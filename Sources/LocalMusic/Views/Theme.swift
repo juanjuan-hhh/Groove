@@ -219,8 +219,9 @@ struct WindowDragArea: NSViewRepresentable {
         var onDoubleClick: (() -> Void)?
         var onDragEnd: (() -> Void)?
 
-        /// 不让系统（WindowServer）自己拖：系统拖和下面自己挪窗口同时进行会互相打架，
-        /// 在缩放比例不一样的几块屏幕之间拖时窗口就会偏离鼠标、乱跳。只留自己这一套
+        /// 不把这块标成「系统可以直接拖」的区域，按下后由下面的 performDrag 交给系统拖：
+        /// 只有系统一个在挪窗口。以前这里标成可拖、又在 mouseDown 里拖（先是再调一次 performDrag，
+        /// 后来是自己按鼠标挪），两套同时在挪，跨屏时窗口会跳开、离鼠标很远
         override var mouseDownCanMoveWindow: Bool { false }
         override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
@@ -232,24 +233,8 @@ struct WindowDragArea: NSViewRepresentable {
                     WindowFill.handleDoubleClick(window)
                 }
             } else {
-                dragWindow(from: event)
+                window?.performDrag(with: event)   // 系统拖：跨屏、菜单栏、分开的空间都由系统处理
                 onDragEnd?()
-            }
-        }
-
-        /// 自己跟着鼠标挪窗口：位置 = 按下时的窗口位置 + 鼠标在全局屏幕坐标里走了多少。
-        /// 以前用系统的 performDrag，在几块屏幕之间拖时窗口会慢慢偏离鼠标（漂移）；
-        /// 这样每次都按全局坐标重新算，不累积误差（悬浮球也是这么拖的）。
-        private func dragWindow(from event: NSEvent) {
-            guard let window else { return }
-            let startMouse = NSEvent.mouseLocation
-            let startOrigin = window.frame.origin
-            while let next = window.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]) {
-                if next.type == .leftMouseUp { break }
-                let mouse = NSEvent.mouseLocation
-                // 取整：不同缩放比例的屏幕上不留半个点
-                window.setFrameOrigin(NSPoint(x: (startOrigin.x + mouse.x - startMouse.x).rounded(),
-                                              y: (startOrigin.y + mouse.y - startMouse.y).rounded()))
             }
         }
     }
