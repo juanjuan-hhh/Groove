@@ -2,9 +2,9 @@ import SwiftUI
 
 enum LibraryTab: String, CaseIterable, Identifiable {
     case songs = "歌曲"
-    case playlists = "列表"
+    case playlists = "歌单"
     case albums = "专辑"
-    case artists = "艺术家"
+    case artists = "歌手"
     case folders = "文件夹"
     var id: Self { self }
 }

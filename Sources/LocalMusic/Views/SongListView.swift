@@ -55,7 +55,7 @@ struct SongListView: View {
             .buttonStyle(.plain)
             .disabled(tracks.isEmpty)
 
-            if library.isScanning {
+            if library.isScanning && library.showsScanProgress {
                 ProgressView().controlSize(.small)
                 Text("正在扫描 \(library.scanned)/\(library.scanTotal)")
                     .font(.ui(12))
@@ -186,9 +186,7 @@ struct TrackRow: View {
             }
             Spacer(minLength: 8)
             if isCurrent {
-                Image(systemName: player.isPlaying ? "speaker.wave.2.fill" : "speaker.fill")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Theme.accent)
+                PlayingBars(isPlaying: player.isPlaying)
             }
             Menu {
                 TrackMenuItems(track: track, playlistID: playlistID, onPlay: onPlay)
@@ -216,28 +214,59 @@ struct TrackRow: View {
     }
 }
 
-/// 右侧的 A–Z 快速索引
+/// 右侧的 A–Z 快速索引：点一下或者按住上下拖动都能跳，旁边显示一个大字母（和 iPhone 版一样）；
+/// 支持力度感应的触控板每换一个字母轻轻震一下
 struct AlphabetIndex: View {
     let letters: [String]
     let onSelect: (String) -> Void
 
+    /// 鼠标正停在哪个字母上（松开后为 nil）
+    @State private var active: String?
+
+    private let rowHeight: CGFloat = 15
+    private let vPad: CGFloat = 6
+
     var body: some View {
-        VStack(spacing: 1) {
+        VStack(spacing: 0) {
             ForEach(letters, id: \.self) { letter in
-                Button {
-                    onSelect(letter)
-                } label: {
-                    Text(letter)
-                        .font(.ui(10, .bold))
-                        .foregroundStyle(Theme.text2)
-                        .frame(width: 18, height: 14)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
+                Text(letter)
+                    .font(.ui(10, .bold))
+                    .foregroundStyle(active == letter ? Theme.accent : Theme.text2)
+                    .frame(width: 18, height: rowHeight)
             }
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, vPad)
         .background(Capsule().fill(Theme.card))
-        .padding(.trailing, 6)
+        .padding(.horizontal, 6)
+        .contentShape(Rectangle())
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { value in
+                    let i = Int(((value.location.y - vPad) / rowHeight).rounded(.down))
+                    let letter = letters[min(max(i, 0), letters.count - 1)]
+                    guard letter != active else { return }
+                    active = letter
+                    onSelect(letter)
+                    NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
+                }
+                .onEnded { _ in
+                    withAnimation(.easeOut(duration: 0.2)) { active = nil }
+                }
+        )
+        // 左边显示一个大字母，知道现在到了哪
+        .overlay(alignment: .leading) {
+            if let active {
+                Text(active)
+                    .font(.ui(26, .heavy))
+                    .foregroundStyle(Theme.ink)
+                    .frame(width: 50, height: 50)
+                    .background(Circle().fill(Theme.accent))
+                    .shadow(color: .black.opacity(0.3), radius: 8, y: 2)
+                    .offset(x: -64)
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+            }
+        }
+        .padding(.trailing, 0)
     }
 }

@@ -21,6 +21,8 @@ final class LibraryStore {
     private(set) var folderGroups: [TrackGroup] = []
 
     private(set) var isScanning = false
+    /// 手动扫描（菜单里的「重新扫描」、添加文件夹）才在列表顶上显示进度；打开 App 时的自动扫描悄悄进行
+    private(set) var showsScanProgress = false
     private(set) var scanned = 0
     private(set) var scanTotal = 0
 
@@ -58,7 +60,21 @@ final class LibraryStore {
            let saved = try? JSONDecoder().decode([Track].self, from: data) {
             setTracks(saved)
         }
-        if !folders.isEmpty { rescan() }
+        // 打开 App 时：还没有歌就马上扫；有歌的话一天最多自动扫一次，并且不显示进度（和 iPhone 版一样）
+        if !folders.isEmpty {
+            if allTracks.isEmpty {
+                rescan()
+            } else if Date().timeIntervalSince(Self.lastAutoScan) > Self.autoScanInterval {
+                rescan(quiet: true)
+            }
+        }
+    }
+
+    /// 自动扫描的间隔：一天（加了新歌想马上看到，用菜单里的「重新扫描」⌘R）
+    private static let autoScanInterval: TimeInterval = 24 * 60 * 60
+    private static let lastScanKey = "lastLibraryScan"
+    private static var lastAutoScan: Date {
+        UserDefaults.standard.object(forKey: lastScanKey) as? Date ?? .distantPast
     }
 
     // MARK: 文件夹
@@ -92,7 +108,9 @@ final class LibraryStore {
 
     // MARK: 扫描
 
-    func rescan() {
+    /// quiet：后台悄悄扫，列表顶上不显示「正在扫描」
+    func rescan(quiet: Bool = false) {
+        if !quiet { showsScanProgress = true }
         guard !isScanning else {
             rescanPending = true
             return
@@ -134,9 +152,12 @@ final class LibraryStore {
             setTracks(result)
             saveTracks()
             isScanning = false
+            UserDefaults.standard.set(Date(), forKey: Self.lastScanKey)
             if rescanPending {
                 rescanPending = false
-                rescan()
+                rescan(quiet: !showsScanProgress)
+            } else {
+                showsScanProgress = false
             }
         }
     }

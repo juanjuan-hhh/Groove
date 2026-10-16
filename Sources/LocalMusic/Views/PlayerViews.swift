@@ -108,11 +108,14 @@ private struct MiniLyricLine: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .id(line)
-                    .transition(.opacity)
+                    .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity),
+                                            removal: .move(edge: .top).combined(with: .opacity)))
             }
         }
         .frame(minWidth: 0, maxWidth: .infinity)
-        .animation(.easeInOut(duration: 0.25), value: line)
+        .frame(height: 20)
+        .clipped()
+        .animation(.easeInOut(duration: 0.35), value: line)
         .contentShape(Rectangle())
         .allowsHitTesting(line != nil)   // 没歌词时点这里和点播放条其他地方一样
         .onTapGesture {
@@ -172,7 +175,7 @@ struct QueueView: View {
                                 }
                                 Spacer()
                                 if i == player.index {
-                                    Image(systemName: "speaker.wave.2.fill").font(.caption).foregroundStyle(Theme.accent)
+                                    PlayingBars(isPlaying: player.isPlaying)
                                 } else {
                                     Button { player.removeFromQueue(at: i) } label: {
                                         Image(systemName: "xmark").font(.caption)
@@ -217,6 +220,11 @@ struct NowPlayingView: View {
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .mask(LyricsFadeMask())
                             .padding(.top, 22)
+                        if player.adjustingLyrics && player.hasSyncedLyrics {
+                            LyricOffsetBar()
+                                .padding(.bottom, 14)
+                                .transition(.opacity)
+                        }
                     } else {
                         cover(in: geo.size)
                             .frame(maxHeight: .infinity)
@@ -233,6 +241,8 @@ struct NowPlayingView: View {
         }
         .foregroundStyle(Theme.text)
         .background(Theme.bg)
+        // 关掉正在播放页时，歌词调整也一起关掉，下次打开是干净的
+        .onDisappear { player.adjustingLyrics = false }
         .background {
             Button("") { player.showNowPlaying = false }
                 .keyboardShortcut(.cancelAction)
@@ -289,8 +299,18 @@ struct NowPlayingView: View {
                         .disabled(!OnlineMedia.hasOnlineCover(track))
                 }
                 Divider()
-                Menu("歌词调整（\(player.lyricOffsetLabel)）") { LyricOffsetMenuItems() }
-                    .disabled(!player.hasSyncedLyrics)
+                // 开启：切到歌词页，下方出现「延后 / 提前」按钮，点哪句歌词对齐哪句；关闭：收起（每次调整当时就已保存）
+                Button(player.adjustingLyrics ? "关闭歌词调整" : "开启歌词调整（\(player.lyricOffsetLabel)）") {
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        if player.adjustingLyrics {
+                            player.adjustingLyrics = false
+                        } else {
+                            player.adjustingLyrics = true
+                            player.showLyrics = true
+                        }
+                    }
+                }
+                .disabled(!player.hasSyncedLyrics)
                 if let track = player.current {
                     Button("在访达中显示") { NSWorkspace.shared.activateFileViewerSelecting([track.url]) }
                 }
@@ -312,6 +332,12 @@ struct NowPlayingView: View {
                 .onTapGesture { player.showLyrics = true }
             CurrentLyricLine()
                 .onTapGesture { player.showLyrics = true }
+            // 格式信息：FLAC · 16bit · 44.1kHz
+            if let track = player.current {
+                ChipText(text: track.formatDescription, color: Theme.surface, foreground: Theme.text2,
+                         font: .ui(12, .bold).monospacedDigit(), hPad: 12, vPad: 5)
+                    .padding(.top, -12)
+            }
         }
     }
 
@@ -426,12 +452,12 @@ struct LyricOffsetMenuItems: View {
 
     var body: some View {
         let step = PlayerController.lyricOffsetStep
-        Button("歌词提前 0.5 秒（歌词慢了）") { player.adjustLyricOffset(by: step) }
-            .disabled(!player.hasSyncedLyrics)
-            .keyboardShortcut(showShortcuts ? KeyboardShortcut("]", modifiers: [.command, .option]) : nil)
         Button("歌词延后 0.5 秒（歌词快了）") { player.adjustLyricOffset(by: -step) }
             .disabled(!player.hasSyncedLyrics)
             .keyboardShortcut(showShortcuts ? KeyboardShortcut("[", modifiers: [.command, .option]) : nil)
+        Button("歌词提前 0.5 秒（歌词慢了）") { player.adjustLyricOffset(by: step) }
+            .disabled(!player.hasSyncedLyrics)
+            .keyboardShortcut(showShortcuts ? KeyboardShortcut("]", modifiers: [.command, .option]) : nil)
         Button("歌词时间复位（\(player.lyricOffsetLabel)）") { player.resetLyricOffset() }
             .disabled(player.lyricOffset == 0)
     }
@@ -442,13 +468,21 @@ private struct CurrentLyricLine: View {
     @Environment(PlayerController.self) private var player
 
     var body: some View {
-        Text(text)
-            .font(.ui(17, .semibold))
-            .foregroundStyle(Theme.text2)
-            .multilineTextAlignment(.center)
-            .lineLimit(2)
-            .frame(height: 48)
-            .animation(.easeInOut(duration: 0.2), value: text)
+        // 换句时新的一句从下面滑上来、旧的往上滑走，而不是原地闪一下
+        ZStack {
+            Text(text)
+                .font(.ui(17, .semibold))
+                .foregroundStyle(Theme.text2)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .id(text)
+                .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity),
+                                        removal: .move(edge: .top).combined(with: .opacity)))
+        }
+        .frame(height: 48)
+        .frame(maxWidth: .infinity)
+        .clipped()
+        .animation(.easeInOut(duration: 0.35), value: text)
     }
 
     private var text: String {
@@ -465,8 +499,13 @@ private struct CurrentLyricLine: View {
 /// 进度条 + 时间
 private struct ProgressSection: View {
     @Environment(PlayerController.self) private var player
-    @State private var dragTime: Double?
     @State private var hovering = false
+
+    /// 拖动中的时间放在 player 里，歌词页、封面下那句歌词会跟着拖动的位置走
+    private var dragTime: Double? {
+        get { player.scrubTime }
+        nonmutating set { player.scrubTime = newValue }
+    }
 
     var body: some View {
         let duration = max(player.duration, 1)
@@ -474,9 +513,23 @@ private struct ProgressSection: View {
         VStack(spacing: 8) {
             // Porthole 的粗胶囊进度条，播放时有光带滑过；点击或拖动跳转
             GeometryReader { geo in
-                CapsuleBar(value: time / duration, height: hovering || dragTime != nil ? 10 : 8,
+                let fraction = min(1, max(0, time / duration))
+                CapsuleBar(value: fraction, height: hovering || dragTime != nil ? 10 : 8,
                            shimmer: player.isPlaying && dragTime == nil)
                     .frame(maxHeight: .infinity)
+                    // 拖动时进度条头上冒出一个圆头小点
+                    .overlay(alignment: .leading) {
+                        Circle()
+                            .fill(Theme.cream)
+                            .overlay(Circle().stroke(Theme.accent, lineWidth: 3))
+                            .frame(width: 18, height: 18)
+                            .shadow(color: .black.opacity(0.35), radius: 4, y: 1)
+                            .scaleEffect(dragTime != nil ? 1 : 0.01)
+                            .opacity(dragTime != nil ? 1 : 0)
+                            .offset(x: geo.size.width * fraction - 9)
+                            .allowsHitTesting(false)
+                            .animation(.spring(response: 0.25, dampingFraction: 0.7), value: dragTime != nil)
+                    }
                     .contentShape(Rectangle())
                     .gesture(
                         DragGesture(minimumDistance: 0)
@@ -543,6 +596,10 @@ struct LyricsView: View {
 
 private struct SyncedLyrics: View {
     @Environment(PlayerController.self) private var player
+    /// 正在用滚轮 / 触控板翻歌词：这时不自动滚回当前这句，免得和手抢
+    @State private var userBrowsing = false
+    /// 停下后等一会儿再回到当前这句
+    @State private var resumeTask: Task<Void, Never>?
 
     var body: some View {
         let lines = player.lyrics
@@ -552,29 +609,149 @@ private struct SyncedLyrics: View {
                 VStack(spacing: 20) {
                     Color.clear.frame(height: 160)
                     ForEach(Array(lines.enumerated()), id: \.element.id) { i, line in
+                        // 所有行用同一种字号：换字号 / 字重没法平滑过渡，只能闪一下换过去，行高还会跟着变。
+                        // 当前这句用放大 + 变亮来突出，这两样都能平滑地动起来
                         Text(line.text)
-                            .font(.ui(i == current ? 26 : 19, i == current ? .heavy : .semibold))
+                            .font(.ui(20, .heavy))
                             .foregroundStyle(i == current ? Theme.text : Theme.text3)
                             .multilineTextAlignment(.center)
                             .frame(maxWidth: .infinity)
+                            .padding(.horizontal, 10)
+                            .scaleEffect(i == current ? 1.18 : 1, anchor: .center)
                             .contentShape(Rectangle())
-                            .onTapGesture { if let t = line.time { player.seek(toLyric: t) } }
+                            .onTapGesture {
+                                guard let t = line.time else { return }
+                                if player.adjustingLyrics {
+                                    // 调整歌词时：听到哪句就点哪句，这一句马上对上现在的歌声
+                                    player.alignLyric(at: t)
+                                } else {
+                                    player.seek(toLyric: t)
+                                }
+                            }
                             .id(line.id)
                     }
                     Color.clear.frame(height: 160)
                 }
                 .padding(.horizontal, 24)
-                .animation(.easeInOut(duration: 0.25), value: current)
+                .animation(.easeInOut(duration: 0.4), value: current)   // 和滚动同样的节奏
             }
             .onAppear {
                 if let current { proxy.scrollTo(lines[current].id, anchor: .center) }
             }
             .onChange(of: current) { _, newValue in
-                guard let newValue, lines.indices.contains(newValue) else { return }
+                // 拖动进度条时一定跟着走（就算刚刚翻过歌词）
+                if player.scrubTime != nil {
+                    resumeTask?.cancel()
+                    userBrowsing = false
+                }
+                guard !userBrowsing, let newValue, lines.indices.contains(newValue) else { return }
                 withAnimation(.easeInOut(duration: 0.4)) {
                     proxy.scrollTo(lines[newValue].id, anchor: .center)
                 }
             }
+            .modifier(BrowseDetector { browsing in
+                if browsing {
+                    resumeTask?.cancel()
+                    userBrowsing = true
+                } else if userBrowsing {
+                    // 停稳 3 秒后再慢慢回到正在唱的这句
+                    resumeTask?.cancel()
+                    resumeTask = Task { @MainActor in
+                        try? await Task.sleep(for: .seconds(3))
+                        guard !Task.isCancelled else { return }
+                        userBrowsing = false
+                        if let i = player.currentLyricIndex, player.lyrics.indices.contains(i) {
+                            withAnimation(.easeInOut(duration: 0.6)) {
+                                proxy.scrollTo(player.lyrics[i].id, anchor: .center)
+                            }
+                        }
+                    }
+                }
+            })
+            .onDisappear { resumeTask?.cancel() }
         }
+    }
+}
+
+/// 手动滚动歌词的检测（macOS 15 起有；更早的系统就不检测，歌词照常自动跟随）
+private struct BrowseDetector: ViewModifier {
+    let changed: (Bool) -> Void
+
+    func body(content: Content) -> some View {
+        if #available(macOS 15, *) {
+            content.onScrollPhaseChange { _, phase in
+                switch phase {
+                case .tracking, .interacting, .decelerating: changed(true)
+                case .idle: changed(false)
+                default: break   // .animating：我们自己 scrollTo 引起的滚动，不算手动
+                }
+            }
+        } else {
+            content
+        }
+    }
+}
+
+/// 歌词页底部的歌词时间调整：◀ 延后 ｜ 歌词提前 1.5s（点一下复位）｜ 提前 ▶ ，上面的小勾收起
+struct LyricOffsetBar: View {
+    @Environment(PlayerController.self) private var player
+
+    var body: some View {
+        let step = PlayerController.lyricOffsetStep
+        VStack(spacing: 6) {
+            HStack(spacing: 8) {
+                barButton("延后", icon: "backward.fill", leading: true) { player.adjustLyricOffset(by: -step) }
+                    .help("歌词延后 0.5 秒（歌词快了）⌥⌘[")
+                Button {
+                    if player.lyricOffset != 0 { player.resetLyricOffset() }
+                } label: {
+                    Text(player.lyricOffsetLabel)
+                        .font(.ui(13, .bold).monospacedDigit())
+                        .foregroundStyle(player.lyricOffset == 0 ? Theme.text2 : Theme.accent)
+                        .lineLimit(1)
+                        .frame(minWidth: 130)
+                        .frame(height: 32)
+                        .contentShape(Rectangle())
+                        .contentTransition(.numericText())
+                        .animation(.easeOut(duration: 0.15), value: player.lyricOffset)
+                }
+                .buttonStyle(.plain)
+                .help("点一下复位")
+                barButton("提前", icon: "forward.fill", leading: false) { player.adjustLyricOffset(by: step) }
+                    .help("歌词提前 0.5 秒（歌词慢了）⌥⌘]")
+                Button {
+                    withAnimation(.easeInOut(duration: 0.25)) { player.adjustingLyrics = false }
+                } label: {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 13, weight: .heavy))
+                        .foregroundStyle(Theme.ink)
+                        .frame(width: 32, height: 32)
+                        .background(Circle().fill(Theme.accent))
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .help("调好了，收起（每次调整当时就已保存）")
+            }
+            Text(player.lyricOffset == 0 ? "听到正在唱哪句，就点上面那句歌词，自动对齐"
+                                         : "点歌词可以重新对齐，点中间的字复位")
+                .font(.ui(11))
+                .foregroundStyle(Theme.text3)
+        }
+    }
+
+    private func barButton(_ title: String, icon: String, leading: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                if leading { Image(systemName: icon).font(.system(size: 10, weight: .bold)) }
+                Text(title).font(.ui(13, .bold))
+                if !leading { Image(systemName: icon).font(.system(size: 10, weight: .bold)) }
+            }
+            .foregroundStyle(Theme.text)
+            .padding(.horizontal, 14)
+            .frame(height: 32)
+            .background(Capsule().fill(Theme.surface))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
     }
 }

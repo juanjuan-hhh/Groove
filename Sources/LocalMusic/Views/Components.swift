@@ -319,3 +319,116 @@ private struct SpinLayer: NSViewRepresentable {
         }
     }
 }
+
+/// 正在播放的那首歌旁边的三根小音柱：播放时高低错开地跳，暂停时停住。
+/// 跳动交给 Core Animation（系统渲染进程负责），和旋转封面一样，App 自己几乎不占 CPU（和 iPhone 版一样）
+struct PlayingBars: View {
+    let isPlaying: Bool
+    var color: Color = Theme.accent
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        BarsLayer(isPlaying: isPlaying, color: NSColor(color), scheme: scheme)
+            .frame(width: 14, height: 14)
+            .accessibilityLabel(isPlaying ? "正在播放" : "已暂停")
+    }
+}
+
+private struct BarsLayer: NSViewRepresentable {
+    let isPlaying: Bool
+    let color: NSColor
+    let scheme: ColorScheme
+
+    func makeNSView(context: Context) -> BarsView { BarsView(frame: NSRect(x: 0, y: 0, width: 14, height: 14)) }
+
+    func updateNSView(_ view: BarsView, context: Context) {
+        view.update(isPlaying: isPlaying, color: color)
+    }
+
+    final class BarsView: NSView {
+        private var bars: [CALayer] = []
+        private var playing: Bool?
+        private static let key = "bounce"
+        /// 每根柱子的高度变化（占满高的比例）和一轮的时长，三根各不相同，看起来不机械
+        private static let patterns: [[CGFloat]] = [
+            [0.35, 1.0, 0.55, 0.85, 0.35],
+            [1.0, 0.4, 0.8, 0.3, 1.0],
+            [0.55, 0.8, 0.3, 1.0, 0.55],
+        ]
+        private static let durations: [CFTimeInterval] = [1.3, 1.1, 1.5]
+        /// 暂停时停住的高度
+        private static let resting: [CGFloat] = [0.45, 0.75, 0.35]
+
+        override init(frame: NSRect) {
+            super.init(frame: frame)
+            wantsLayer = true
+            for _ in 0..<3 {
+                let bar = CALayer()
+                bar.anchorPoint = CGPoint(x: 0.5, y: 0)   // Mac 坐标原点在左下：从底部往上伸缩
+                bar.actions = ["bounds": NSNull(), "position": NSNull(), "transform": NSNull(),
+                               "backgroundColor": NSNull()]
+                layer?.addSublayer(bar)
+                bars.append(bar)
+            }
+            layoutBars()
+        }
+
+        required init?(coder: NSCoder) { fatalError() }
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func layout() {
+            super.layout()
+            layoutBars()
+        }
+
+        private func layoutBars() {
+            let width: CGFloat = 3, gap: CGFloat = 2.5
+            let total = width * 3 + gap * 2
+            let x0 = (bounds.width - total) / 2
+            for (i, bar) in bars.enumerated() {
+                bar.bounds = CGRect(x: 0, y: 0, width: width, height: bounds.height)
+                bar.position = CGPoint(x: x0 + CGFloat(i) * (width + gap) + width / 2, y: 0)
+                bar.cornerRadius = width / 2
+            }
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            // 重新显示时动画可能被系统移除了，补上
+            if window != nil, playing == true, bars.first?.animation(forKey: Self.key) == nil {
+                startBouncing()
+            }
+        }
+
+        func update(isPlaying: Bool, color: NSColor) {
+            // 深色 / 浅色两版颜色：按这个视图当前的外观取
+            var cg = color.cgColor
+            effectiveAppearance.performAsCurrentDrawingAppearance { cg = color.cgColor }
+            bars.forEach { $0.backgroundColor = cg }
+            guard isPlaying != playing else { return }
+            playing = isPlaying
+            if isPlaying {
+                startBouncing()
+            } else {
+                for (i, bar) in bars.enumerated() {
+                    bar.removeAnimation(forKey: Self.key)
+                    bar.transform = CATransform3DMakeScale(1, Self.resting[i], 1)
+                }
+            }
+        }
+
+        private func startBouncing() {
+            for (i, bar) in bars.enumerated() {
+                bar.transform = CATransform3DIdentity
+                let anim = CAKeyframeAnimation(keyPath: "transform.scale.y")
+                anim.values = Self.patterns[i]
+                anim.duration = Self.durations[i]
+                anim.repeatCount = .infinity
+                anim.calculationMode = .cubic
+                anim.isRemovedOnCompletion = false
+                bar.add(anim, forKey: Self.key)
+            }
+        }
+    }
+}
