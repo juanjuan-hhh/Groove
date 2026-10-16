@@ -86,10 +86,6 @@ struct MiniPlayerBar: View {
                     QueueView().environment(player)
                 }
                 .disabled(idle).opacity(idle ? 0.35 : 1)
-            IconButton(systemName: "circle.circle", size: 16, help: "切换到悬浮球（⇧⌘M）") {
-                FloatingBall.shared.enter(player: player)
-            }
-            .disabled(idle).opacity(idle ? 0.35 : 1)
         }
     }
 }
@@ -244,7 +240,7 @@ struct NowPlayingView: View {
             }
         }
         .foregroundStyle(Theme.text)
-        // 右上角：切到悬浮球（和底部播放条最右边那个一样）
+        // 右上角：切到悬浮球（和主窗口顶栏最右边那个一样）
         .overlay(alignment: .topTrailing) {
             IconButton(systemName: "circle.circle", size: 17, help: "切换到悬浮球（⇧⌘M）") {
                 FloatingBall.shared.enter(player: player)
@@ -312,9 +308,9 @@ struct NowPlayingView: View {
                     }
                     Button("联网搜索封面和歌词…") { player.openOnlineSearch() }
                     if let track = player.current {
-                        Button("删除歌词（只删 App 下载的）") { Task { await player.deleteOnlineLyrics(for: track) } }
+                        Button("删除歌词（仅删除 App 下载数据）") { Task { await player.deleteOnlineLyrics(for: track) } }
                             .disabled(player.lyricsSource != .online && player.lyricsSource != .manual)
-                        Button("删除封面（只删 App 下载的）") { Task { await player.deleteOnlineCover(for: track) } }
+                        Button("删除封面（仅删除 App 下载数据）") { Task { await player.deleteOnlineCover(for: track) } }
                             .disabled(!OnlineMedia.hasOnlineCover(track))
                     }
                     Divider()

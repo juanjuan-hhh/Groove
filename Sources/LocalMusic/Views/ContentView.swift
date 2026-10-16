@@ -104,6 +104,7 @@ struct TopBar: View {
     /// false 时搜索框换成静态文字（被正在播放页盖住时）
     var searchActive = true
     @Environment(LibraryStore.self) private var library
+    @Environment(PlayerController.self) private var player
     @AppStorage(AppSettings.autoFetchKey) private var autoFetch = true
     @AppStorage(AppearanceMode.key) private var appearance: AppearanceMode = .dark
     @AppStorage(SpinningArtwork.enabledKey) private var spinCover = true
@@ -194,6 +195,14 @@ struct TopBar: View {
             .menuIndicator(.hidden)
             .fixedSize()
             .help("设置")
+
+            // 最右边：切到悬浮球（正在播放页也在右上角放了一个）
+            IconButton(systemName: "circle.circle", size: 13, help: "切换到悬浮球（⇧⌘M）") {
+                FloatingBall.shared.enter(player: player)
+            }
+            .foregroundStyle(Theme.text2)
+            .frame(width: 22, height: 22)
+            .disabled(player.current == nil).opacity(player.current == nil ? 0.35 : 1)
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 9)
