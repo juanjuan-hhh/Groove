@@ -35,3 +35,27 @@ struct GlassBackground: NSViewRepresentable {
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
     }
 }
+
+/// 主窗口的毛玻璃底：透出一点桌面壁纸。上面再盖一层半透明的底色（Theme.bg），文字照样看得清。
+struct WindowGlass: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = GlassView()
+        view.material = .hudWindow
+        view.blendingMode = .behindWindow
+        view.state = .active
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    private final class GlassView: NSVisualEffectView {
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+        // 窗口本身要是透明的，后面的壁纸才透得过来
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard let window else { return }
+            window.isOpaque = false
+            window.backgroundColor = .clear
+        }
+    }
+}

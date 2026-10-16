@@ -10,6 +10,25 @@ struct SongsTab: View {
     }
 }
 
+/// 窗口够宽时歌曲列表分栏显示：歌名 | 歌手 | 专辑 | 格式 | 时长（和 Apple Music 的「歌曲」页一样）
+private struct SongListWideKey: EnvironmentKey { static let defaultValue = false }
+extension EnvironmentValues {
+    var songListWide: Bool {
+        get { self[SongListWideKey.self] }
+        set { self[SongListWideKey.self] = newValue }
+    }
+}
+
+/// 分栏时各栏的宽度（表头和每一行共用，保证对齐）
+enum SongColumns {
+    static let minWidth: CGFloat = 860   // 窗口内容宽过这个才分栏
+    static let format: CGFloat = 150
+    static let time: CGFloat = 48
+    static let menu: CGFloat = 24
+    static let leading: CGFloat = 24
+    static let trailing: CGFloat = 36
+}
+
 /// 歌曲列表（带顶部的 播放全部 / 随机 / 循环 / 排序，和右侧 A–Z 索引）
 struct SongListView: View {
     let tracks: [Track]
@@ -21,9 +40,17 @@ struct SongListView: View {
     @Environment(LibraryStore.self) private var library
 
     var body: some View {
+        GeometryReader { geo in
+            let wide = geo.size.width >= SongColumns.minWidth
+            content(wide: wide).environment(\.songListWide, wide)
+        }
+    }
+
+    private func content(wide: Bool) -> some View {
         VStack(spacing: 0) {
             header
             ThemeDivider()
+            if wide && !tracks.isEmpty { columnHeader }
             if tracks.isEmpty {
                 VStack(spacing: 8) {
                     Image(systemName: "music.note").font(.system(size: 36)).foregroundStyle(Theme.text3)
@@ -77,6 +104,23 @@ struct SongListView: View {
         .padding(.leading, 24)
         .padding(.trailing, 20)
         .padding(.vertical, 8)
+    }
+
+    /// 分栏时的表头
+    private var columnHeader: some View {
+        HStack(spacing: 12) {
+            Text("歌名").padding(.leading, 58).frame(maxWidth: .infinity, alignment: .leading)
+            Text("歌手").frame(maxWidth: .infinity, alignment: .leading)
+            Text("专辑").frame(maxWidth: .infinity, alignment: .leading)
+            Text("格式").frame(width: SongColumns.format, alignment: .leading)
+            Text("时长").frame(width: SongColumns.time, alignment: .trailing)
+            Color.clear.frame(width: SongColumns.menu, height: 1)
+        }
+        .font(.ui(11, .bold))
+        .foregroundStyle(Theme.text3)
+        .padding(.leading, SongColumns.leading)
+        .padding(.trailing, SongColumns.trailing)
+        .padding(.vertical, 6)
     }
 
     private var sortMenu: some View {
@@ -165,10 +209,70 @@ struct TrackRow: View {
     let onPlay: () -> Void
 
     @Environment(PlayerController.self) private var player
+    @Environment(\.songListWide) private var wide
     @State private var hovering = false
 
     var body: some View {
-        let isCurrent = player.current?.id == track.id
+        Group {
+            if wide { wideRow } else { narrowRow }
+        }
+        .padding(.leading, SongColumns.leading)
+        .padding(.trailing, SongColumns.trailing)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: Theme.rowRadius, style: .continuous)
+                .fill(hovering ? Theme.surface : (isCurrent ? Theme.card : .clear))
+                .padding(.horizontal, 10)
+        )
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+        .onTapGesture(count: 2, perform: onPlay)
+        .contextMenu { TrackMenuItems(track: track, playlistID: playlistID, onPlay: onPlay) }
+        .help("双击播放")
+    }
+
+    private var isCurrent: Bool { player.current?.id == track.id }
+
+    /// 宽窗口：分栏
+    private var wideRow: some View {
+        HStack(spacing: 12) {
+            HStack(spacing: 12) {
+                ArtworkView(track: track, size: 46)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(track.title)
+                        .font(.ui(14, isCurrent ? .bold : .medium))
+                        .foregroundStyle(isCurrent ? Theme.accent : Theme.text)
+                        .lineLimit(1)
+                    QualityBadge(quality: track.quality)
+                }
+                Spacer(minLength: 4)
+                if isCurrent { PlayingBars(isPlaying: player.isPlaying) }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Text(track.artist).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
+            Text(track.album).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
+            Text(track.formatDescription).lineLimit(1).frame(width: SongColumns.format, alignment: .leading)
+            Text(formatTime(track.duration)).monospacedDigit().frame(width: SongColumns.time, alignment: .trailing)
+            menu.frame(width: SongColumns.menu)
+        }
+        .font(.ui(13))
+        .foregroundStyle(Theme.text2)
+    }
+
+    private var menu: some View {
+        Menu {
+            TrackMenuItems(track: track, playlistID: playlistID, onPlay: onPlay)
+        } label: {
+            Image(systemName: "ellipsis").foregroundStyle(Theme.text2)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .opacity(hovering ? 1 : 0.45)
+    }
+
+    /// 窄窗口：两行
+    private var narrowRow: some View {
         HStack(spacing: 12) {
             ArtworkView(track: track, size: 46)
             VStack(alignment: .leading, spacing: 4) {
@@ -188,29 +292,8 @@ struct TrackRow: View {
             if isCurrent {
                 PlayingBars(isPlaying: player.isPlaying)
             }
-            Menu {
-                TrackMenuItems(track: track, playlistID: playlistID, onPlay: onPlay)
-            } label: {
-                Image(systemName: "ellipsis").foregroundStyle(Theme.text2)
-            }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .opacity(hovering ? 1 : 0.45)
+            menu
         }
-        .padding(.leading, 24)
-        .padding(.trailing, 36)
-        .padding(.vertical, 6)
-        .background(
-            RoundedRectangle(cornerRadius: Theme.rowRadius, style: .continuous)
-                .fill(hovering ? Theme.surface : (isCurrent ? Theme.card : .clear))
-                .padding(.horizontal, 10)
-        )
-        .contentShape(Rectangle())
-        .onHover { hovering = $0 }
-        .onTapGesture(count: 2, perform: onPlay)
-        .contextMenu { TrackMenuItems(track: track, playlistID: playlistID, onPlay: onPlay) }
-        .help("双击播放")
     }
 }
 

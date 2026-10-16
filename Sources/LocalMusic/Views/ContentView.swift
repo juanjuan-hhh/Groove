@@ -24,7 +24,14 @@ struct ContentView: View {
             content.padding(.top, max(0, Self.titleBarHeight - geo.safeAreaInsets.top))
         }
         .foregroundStyle(Theme.text)
-        .background(Theme.bg.ignoresSafeArea())
+        // 毛玻璃底透出一点壁纸，再盖一层半透明的底色
+        .background {
+            ZStack {
+                WindowGlass()
+                Theme.bg.opacity(0.72)
+            }
+            .ignoresSafeArea()
+        }
     }
 
     static let titleBarHeight: CGFloat = 28

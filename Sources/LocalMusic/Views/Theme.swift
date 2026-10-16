@@ -7,7 +7,7 @@ import SwiftUI
 enum Theme {
     // MARK: 底色和文字                       深色版              浅色版
 
-    static let bg = dynamic(0x000000, 0xFFFFFF)       // 页面背景：纯黑 / 纯白
+    static let bg = dynamic(0x000000, 0xFAF8F4)       // 页面背景：纯黑 / 淡暖白
     static let card = dynamic(0x16171B, 0xF5F2EC)     // 卡片、底部播放条、搜索框
     static let surface = dynamic(0x24252B, 0xECE8E0)  // 悬停、空闲的胶囊
     static let track = dynamic(0x2E3036, 0xE3DED4)    // 进度条空的部分
