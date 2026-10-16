@@ -219,7 +219,9 @@ struct WindowDragArea: NSViewRepresentable {
         var onDoubleClick: (() -> Void)?
         var onDragEnd: (() -> Void)?
 
-        override var mouseDownCanMoveWindow: Bool { true }
+        /// 不让系统（WindowServer）自己拖：系统拖和下面自己挪窗口同时进行会互相打架，
+        /// 在缩放比例不一样的几块屏幕之间拖时窗口就会偏离鼠标、乱跳。只留自己这一套
+        override var mouseDownCanMoveWindow: Bool { false }
         override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
         override func mouseDown(with event: NSEvent) {
@@ -245,8 +247,9 @@ struct WindowDragArea: NSViewRepresentable {
             while let next = window.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]) {
                 if next.type == .leftMouseUp { break }
                 let mouse = NSEvent.mouseLocation
-                window.setFrameOrigin(NSPoint(x: startOrigin.x + mouse.x - startMouse.x,
-                                              y: startOrigin.y + mouse.y - startMouse.y))
+                // 取整：不同缩放比例的屏幕上不留半个点
+                window.setFrameOrigin(NSPoint(x: (startOrigin.x + mouse.x - startMouse.x).rounded(),
+                                              y: (startOrigin.y + mouse.y - startMouse.y).rounded()))
             }
         }
     }
