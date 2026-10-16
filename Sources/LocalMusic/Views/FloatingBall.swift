@@ -20,6 +20,10 @@ final class FloatingBall {
     var hovering = false
 
     @ObservationIgnored private var panel: NSPanel?
+    /// 旁边的歌词条（单独的小窗口，挂在球的窗口上，跟着球一起动；不接收鼠标，不挡拖动）
+    @ObservationIgnored private var lyricPanel: NSPanel?
+    /// 歌词条往左伸（球在屏幕右半边时）还是往右伸
+    private(set) var lyricOnLeft = true
     @ObservationIgnored private weak var mainWindow: NSWindow?
 
     var isShown: Bool { panel?.isVisible ?? false }
@@ -36,6 +40,7 @@ final class FloatingBall {
         panel.setFrameOrigin(savedOrigin())
         panel.orderFrontRegardless()
         panel.invalidateShadow()
+        attachLyricPanel(player: player)
         mainWindow?.orderOut(nil)
         tucked = false
         tuckedEdge = nil   // 一出来是完整的球（转动的封面），等藏进去时才换成半圆的样子
@@ -54,6 +59,10 @@ final class FloatingBall {
                                   forKey: Self.originKey)
         tucked = false
         tuckedEdge = nil   // 上次藏着一半时退出：清掉，免得下次出来时完整的球显示成半圆的样子
+        if let lyricPanel {
+            panel.removeChildWindow(lyricPanel)
+            lyricPanel.orderOut(nil)
+        }
         panel.orderOut(nil)
         NSApp.activate(ignoringOtherApps: true)
         (mainWindow ?? NSApp.windows.first { !($0 is NSPanel) && $0.canBecomeMain })?.makeKeyAndOrderFront(nil)
@@ -133,6 +142,8 @@ final class FloatingBall {
         guard let panel, let start = dragStart else { return }
         panel.setFrameOrigin(NSPoint(x: start.origin.x + mouse.x - start.mouse.x,
                                      y: start.origin.y + mouse.y - start.mouse.y))
+        // 拖过屏幕中线时歌词条换到另一边
+        if lyricSide(for: panel.frame) != lyricOnLeft { positionLyricPanel(for: panel.frame) }
     }
 
     func endDrag() {
@@ -144,7 +155,12 @@ final class FloatingBall {
                 context.duration = 0.2
                 context.timingFunction = CAMediaTimingFunction(name: .easeOut)
                 panel.animator().setFrame(target, display: true)
+            } completionHandler: {
+                // 歌词条挂在球上会跟着一起挪，动画完再按最终位置对齐一次
+                MainActor.assumeIsolated { FloatingBall.shared.positionLyricPanel(for: target) }
             }
+        } else {
+            positionLyricPanel(for: target)
         }
         UserDefaults.standard.set(NSStringFromPoint(target.origin), forKey: Self.originKey)
         updateDock(for: target)
@@ -227,6 +243,9 @@ final class FloatingBall {
             context.duration = 0.22
             context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             panel.animator().setFrame(frame, display: true)
+        } completionHandler: {
+            // 歌词条跟着球一起挪过了，滑出来以后再按完整的球对齐一次
+            if !tucked { MainActor.assumeIsolated { FloatingBall.shared.positionLyricPanel(for: frame) } }
         }
     }
 
@@ -245,6 +264,56 @@ final class FloatingBall {
         if f.minY - lo.minY < Self.snapDistance { f.origin.y = lo.minY }
         if lo.maxY - f.maxY < Self.snapDistance { f.origin.y = lo.maxY - f.height }
         return f
+    }
+
+    // MARK: 歌词条
+
+    static let lyricWidth: CGFloat = 320
+    static let lyricHeight: CGFloat = 36
+    private static let lyricGap: CGFloat = 8
+
+    private func attachLyricPanel(player: PlayerController) {
+        guard let panel else { return }
+        let lyric = lyricPanel ?? makeLyricPanel(player: player)
+        lyricPanel = lyric
+        positionLyricPanel(for: panel.frame)
+        panel.addChildWindow(lyric, ordered: .above)
+        lyric.orderFrontRegardless()
+    }
+
+    /// 球在屏幕右半边就往左伸，左半边就往右伸（朝屏幕里面）
+    private func lyricSide(for ball: NSRect) -> Bool {
+        let screen = panel?.screen ?? NSScreen.main
+        return ball.midX > (screen?.visibleFrame.midX ?? 0)
+    }
+
+    private func positionLyricPanel(for ball: NSRect) {
+        guard let lyricPanel else { return }
+        let onLeft = lyricSide(for: ball)
+        if onLeft != lyricOnLeft { lyricOnLeft = onLeft }
+        let x = onLeft ? ball.minX - Self.lyricGap - Self.lyricWidth : ball.maxX + Self.lyricGap
+        // 上下和完整的球对齐（藏起一半时歌词条本来就不显示）
+        let midY = tucked ? (shownFrame?.midY ?? ball.midY) : ball.midY
+        lyricPanel.setFrame(NSRect(x: x, y: midY - Self.lyricHeight / 2, width: Self.lyricWidth, height: Self.lyricHeight),
+                            display: false)
+    }
+
+    private func makeLyricPanel(player: PlayerController) -> NSPanel {
+        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: Self.lyricWidth, height: Self.lyricHeight),
+                            styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        panel.level = .floating
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = false
+        panel.ignoresMouseEvents = true
+        panel.hidesOnDeactivate = false
+        panel.isReleasedWhenClosed = false
+        let host = NSHostingView(rootView: FloatingLyricView().environment(player).modifier(ThemedAppearance()))
+        host.frame = NSRect(x: 0, y: 0, width: Self.lyricWidth, height: Self.lyricHeight)
+        host.autoresizingMask = [.width, .height]
+        panel.contentView = host
+        return panel
     }
 
     private func makePanel(player: PlayerController) -> NSPanel {
@@ -467,5 +536,63 @@ private struct EqualizerBars: View {
         }
         .frame(height: 18, alignment: .bottom)
         .onAppear { up = true }
+    }
+}
+
+
+/// 悬浮球歌词的显示方式（设置菜单里选）
+enum FloatingLyricsMode: String, CaseIterable, Identifiable {
+    case off, hover, always
+    var id: Self { self }
+    static let key = "floatingLyricsMode"
+    var label: String {
+        switch self {
+        case .off: return "关闭"
+        case .hover: return "鼠标移上去显示"
+        case .always: return "一直显示"
+        }
+    }
+}
+
+/// 悬浮球旁边的歌词条：只显示当前这一句，换句时滑动切换
+private struct FloatingLyricView: View {
+    @Environment(PlayerController.self) private var player
+    @AppStorage(FloatingLyricsMode.key) private var mode: FloatingLyricsMode = .always
+
+    var body: some View {
+        let ball = FloatingBall.shared
+        let line = currentLine
+        let visible = !line.isEmpty && ball.tuckedEdge == nil && mode != .off && (mode == .always || ball.hovering)
+        ZStack {
+            Text(line)
+                .font(.ui(14, .semibold))
+                .foregroundStyle(Theme.text)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .id(line)
+                .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity),
+                                        removal: .move(edge: .top).combined(with: .opacity)))
+        }
+        .padding(.horizontal, 16)
+        .frame(height: FloatingBall.lyricHeight)
+        .clipped()
+        .background {
+            ZStack {
+                GlassBackground(cornerRadius: FloatingBall.lyricHeight / 2)
+                Capsule().fill(Theme.card.opacity(0.35))
+            }
+        }
+        .clipShape(Capsule())
+        .animation(.easeInOut(duration: 0.35), value: line)
+        // 贴着球那一边对齐，长度跟着歌词变，最长到整个歌词条
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: ball.lyricOnLeft ? .trailing : .leading)
+        .opacity(visible ? 1 : 0)
+        .animation(.easeInOut(duration: 0.2), value: visible)
+    }
+
+    /// 当前这一句；没有逐句歌词时为空（不显示歌词条）
+    private var currentLine: String {
+        guard player.lyricsState == .loaded, let i = player.currentLyricIndex, player.lyrics.indices.contains(i) else { return "" }
+        return player.lyrics[i].text.trimmingCharacters(in: .whitespaces)
     }
 }

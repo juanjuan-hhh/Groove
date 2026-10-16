@@ -107,6 +107,7 @@ struct TopBar: View {
     @AppStorage(AppSettings.autoFetchKey) private var autoFetch = true
     @AppStorage(AppearanceMode.key) private var appearance: AppearanceMode = .dark
     @AppStorage(SpinningArtwork.enabledKey) private var spinCover = true
+    @AppStorage(FloatingLyricsMode.key) private var floatingLyrics: FloatingLyricsMode = .always
 
     var body: some View {
         HStack(spacing: 14) {
@@ -179,6 +180,9 @@ struct TopBar: View {
                 Divider()
                 Toggle("自动联网获取缺少的封面和歌词", isOn: $autoFetch)
                 Toggle("播放时旋转封面", isOn: $spinCover)
+                Picker("悬浮球歌词", selection: $floatingLyrics) {
+                    ForEach(FloatingLyricsMode.allCases) { Text($0.label).tag($0) }
+                }
                 Picker("外观", selection: $appearance) {
                     ForEach(AppearanceMode.allCases) { Text($0.label).tag($0) }
                 }
