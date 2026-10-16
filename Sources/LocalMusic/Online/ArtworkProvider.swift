@@ -54,7 +54,41 @@ final class ArtworkProvider {
         return image
     }
 
+    @ObservationIgnored private var colors: [String: NSColor] = [:]
+
+    /// 封面的主色（把封面缩成 8×8 取平均，再稍微提一点饱和度、把亮度压在中间，做底色不会太灰也不会太刺眼）。
+    /// 没有封面时为 nil
+    func coverColor(for track: Track) async -> NSColor? {
+        if let color = colors[track.path] { return color }
+        guard let image = await image(for: track, size: 56),
+              let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
+        let side = 8
+        var pixels = [UInt8](repeating: 0, count: side * side * 4)
+        let drawn: Bool = pixels.withUnsafeMutableBytes { buffer in
+            guard let context = CGContext(data: buffer.baseAddress, width: side, height: side, bitsPerComponent: 8,
+                                          bytesPerRow: side * 4, space: CGColorSpaceCreateDeviceRGB(),
+                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+            context.interpolationQuality = .medium
+            context.draw(cg, in: CGRect(x: 0, y: 0, width: side, height: side))
+            return true
+        }
+        guard drawn else { return nil }
+        var r = 0.0, g = 0.0, b = 0.0
+        for i in stride(from: 0, to: pixels.count, by: 4) {
+            r += Double(pixels[i]); g += Double(pixels[i + 1]); b += Double(pixels[i + 2])
+        }
+        let n = Double(side * side) * 255
+        let average = NSColor(deviceRed: r / n, green: g / n, blue: b / n, alpha: 1)
+        var hue: CGFloat = 0, saturation: CGFloat = 0, brightness: CGFloat = 0, alpha: CGFloat = 0
+        average.getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: &alpha)
+        let color = NSColor(deviceHue: hue, saturation: min(1, saturation * 1.35),
+                            brightness: min(0.78, max(0.32, brightness)), alpha: 1)
+        colors[track.path] = color
+        return color
+    }
+
     func invalidate(_ track: Track) {
+        colors.removeValue(forKey: track.path)
         missing.remove(track.path)
         for bucket in Self.buckets {
             cache.removeObject(forKey: "\(track.path)#\(Int(bucket))" as NSString)

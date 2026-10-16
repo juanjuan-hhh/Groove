@@ -9,11 +9,22 @@ import SwiftUI
 final class FloatingBall {
     static let shared = FloatingBall()
 
-    static let size: CGFloat = 96
-    /// 贴边藏起一半时缩小到这么大
-    static let tuckedSize: CGFloat = 66
+    /// 默认大小；设置里可以在 sizeRange 之间调（记在 sizeKey 里）
+    static let defaultSize: CGFloat = 96
+    static let sizeRange: ClosedRange<CGFloat> = 64...160
+    static let sizeKey = "floatingBallSize"
+    static var size: CGFloat {
+        let saved = UserDefaults.standard.double(forKey: sizeKey)
+        return saved > 0 ? min(sizeRange.upperBound, max(sizeRange.lowerBound, saved)) : defaultSize
+    }
+    /// 贴边藏起一半时缩小到这么大（按比例，默认 96 → 66）
+    static var tuckedSize: CGFloat { (size * 66 / 96).rounded() }
     /// 现在球画多大（藏起一半时变小），界面跟着它变
     private(set) var ballSize: CGFloat = FloatingBall.size
+    /// 球的大小相对默认的比例，歌词条按它一起缩放
+    private(set) var scale: CGFloat = FloatingBall.size / FloatingBall.defaultSize
+    /// 正在设置里调大小：不贴边藏起来
+    @ObservationIgnored private var adjustingSize = false
     private static let originKey = "floatingBallOrigin"
 
     /// 鼠标是否在球上（用 AppKit 的跟踪区域检测，Groove 不在前台时也有效）
@@ -45,6 +56,7 @@ final class FloatingBall {
         tucked = false
         tuckedEdge = nil   // 一出来是完整的球（转动的封面），等藏进去时才换成半圆的样子
         ballSize = Self.size
+        scale = Self.size / Self.defaultSize
         panel.setContentSize(NSSize(width: Self.size, height: Self.size))
         updateDock(for: panel.frame)
         scheduleTuck(after: 1.5)
@@ -209,10 +221,10 @@ final class FloatingBall {
 
     private func scheduleTuck(after seconds: Double) {
         cancelTuck()
-        guard dock != nil, !tucked else { return }
+        guard dock != nil, !tucked, !adjustingSize else { return }
         tuckTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(seconds))
-            guard !Task.isCancelled, let self, !self.hovering, self.dragStart == nil else { return }
+            guard !Task.isCancelled, let self, !self.hovering, self.dragStart == nil, !self.adjustingSize else { return }
             self.tuck()
         }
     }
@@ -266,11 +278,86 @@ final class FloatingBall {
         return f
     }
 
+    // MARK: 调大小（设置菜单里的「悬浮球大小…」）
+
+    @ObservationIgnored private var sizePanel: NSPanel?
+    /// 打开调大小窗口之前悬浮球是不是已经开着（关掉窗口时恢复）
+    @ObservationIgnored private var shownBeforeAdjusting = false
+
+    /// 打开调大小的小窗口，同时把悬浮球放出来，边拖滑块边看
+    func showSizeAdjuster(player: PlayerController) {
+        if let sizePanel, sizePanel.isVisible {
+            sizePanel.makeKeyAndOrderFront(nil)
+            return
+        }
+        shownBeforeAdjusting = isShown
+        adjustingSize = true
+        cancelTuck()
+        if isShown {
+            if tucked { slide(to: shownFrame, tucked: false) }
+        } else {
+            enter(player: player)
+        }
+        let window = sizePanel ?? makeSizePanel()
+        sizePanel = window
+        if let screen = (panel?.screen ?? NSScreen.main)?.visibleFrame {
+            window.setFrameOrigin(NSPoint(x: screen.midX - window.frame.width / 2, y: screen.midY - window.frame.height / 2))
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+    }
+
+    /// 调大小窗口关掉了：之前没开悬浮球就回主窗口，开着就留着
+    fileprivate func sizeAdjusterClosed() {
+        adjustingSize = false
+        if shownBeforeAdjusting {
+            scheduleTuck(after: 1.5)
+        } else {
+            exit()
+        }
+    }
+
+    /// 改大小：记下来，球按中心放大缩小（靠边的话还贴着边），歌词条跟着一起变
+    func setSize(_ value: CGFloat) {
+        let size = min(Self.sizeRange.upperBound, max(Self.sizeRange.lowerBound, value.rounded()))
+        UserDefaults.standard.set(Double(size), forKey: Self.sizeKey)
+        scale = size / Self.defaultSize
+        guard let panel, panel.isVisible, !tucked else {
+            ballSize = size
+            return
+        }
+        let old = panel.frame
+        var frame = NSRect(x: old.midX - size / 2, y: old.midY - size / 2, width: size, height: size)
+        frame = snapped(frame, on: panel.screen ?? NSScreen.main)
+        ballSize = size
+        panel.setFrame(frame, display: true)
+        panel.invalidateShadow()
+        positionLyricPanel(for: frame)
+        updateDock(for: frame)
+        UserDefaults.standard.set(NSStringFromPoint(frame.origin), forKey: Self.originKey)
+    }
+
+    private func makeSizePanel() -> NSPanel {
+        let window = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 300, height: 120),
+                             styleMask: [.titled, .closable, .utilityWindow], backing: .buffered, defer: false)
+        window.title = "悬浮球大小"
+        window.level = .floating
+        window.hidesOnDeactivate = false
+        window.isReleasedWhenClosed = false
+        window.delegate = sizePanelDelegate
+        let host = NSHostingView(rootView: FloatingBallSizeView { window.close() }.modifier(ThemedAppearance()))
+        window.contentView = host
+        window.setContentSize(host.fittingSize)
+        return window
+    }
+
+    @ObservationIgnored private let sizePanelDelegate = SizePanelDelegate()
+
     // MARK: 歌词条
 
-    static let lyricWidth: CGFloat = 320
-    static let lyricHeight: CGFloat = 36
-    private static let lyricGap: CGFloat = 8
+    static var lyricWidth: CGFloat { 320 * size / defaultSize }
+    static var lyricHeight: CGFloat { (36 * size / defaultSize).rounded() }
+    private static var lyricGap: CGFloat { 8 * size / defaultSize }
 
     private func attachLyricPanel(player: PlayerController) {
         guard let panel else { return }
@@ -379,28 +466,44 @@ struct FloatingBallView: View {
 
     /// 藏起一半时变小
     private var size: CGFloat { FloatingBall.shared.ballSize }
-    private let ring: CGFloat = 5
+    /// 进度环粗细：球调大时跟着变粗一点，调小不再变细
+    private var ring: CGFloat { 5 * max(1, size / FloatingBall.defaultSize) }
+    /// 进度头圆点的直径
+    private var knob: CGFloat { ring * 1.8 }
+    /// 进度环往里收这么多，圆点整个落在球里面，不会被圆形边缘裁掉半个
+    private var ringInset: CGFloat { knob / 2 + 0.5 }
+    /// 封面的主色，用来给中间的毛玻璃染色
+    @State private var coverTint: Color?
 
     var body: some View {
         let fraction = player.duration > 0 ? min(1, player.currentTime / player.duration) : 0
+        let provider = ArtworkProvider.shared
         ZStack {
-            // 半透明玻璃底，加一层很淡的底色让进度环看得清
+            // 半透明玻璃底，透出一点封面的颜色（没封面时用很淡的底色），让进度环看得清
             GlassBackground(cornerRadius: size / 2)
-            Circle().fill(Theme.card.opacity(0.35)).allowsHitTesting(false)
+            Circle().fill(coverTint.map { $0.opacity(0.55) } ?? Theme.card.opacity(0.35)).allowsHitTesting(false)
+            if FloatingBall.shared.tuckedEdge == nil {
+                SpinningArtwork(track: player.current, size: (size / 2 - ringInset - ring / 2) * 2 - 1)
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+            }
+            // 鼠标移上去时的暗底，压在进度环下面
+            if hovering {
+                Circle().fill(Theme.bg.opacity(0.62)).allowsHitTesting(false).transition(.opacity)
+            }
+            // 进度环和圆点画在封面、暗底上面
             if let edge = FloatingBall.shared.tuckedEdge {
                 tuckedFace(edge: edge, fraction: fraction)
                     .transition(.opacity)
             } else {
                 Group {
-                    SpinningArtwork(track: player.current, size: size - ring * 2 - 6)
-
                     // 进度环（和 App 图标一样：墨色 / 奶油色，进度头上一个圆点）
-                    Circle().stroke(Theme.track, lineWidth: ring).padding(ring / 2)
+                    Circle().stroke(Theme.track, lineWidth: ring).padding(ringInset)
                     Circle()
                         .trim(from: 0, to: fraction)
                         .stroke(Theme.text, style: StrokeStyle(lineWidth: ring, lineCap: .round))
                         .rotationEffect(.degrees(-90))
-                        .padding(ring / 2)
+                        .padding(ringInset)
                     progressKnob(angle: 2 * .pi * fraction)
                         .opacity(fraction > 0.01 ? 1 : 0)
                 }
@@ -408,7 +511,19 @@ struct FloatingBallView: View {
                 .transition(.opacity)
             }
 
-            if hovering { controls.transition(.opacity) }
+            if hovering {
+                controls
+                    .scaleEffect(size / FloatingBall.defaultSize)
+                    .transition(.opacity)
+            }
+        }
+        .task(id: "\(player.current?.path ?? "")#\(provider.revision)") {
+            guard let track = player.current else {
+                coverTint = nil
+                return
+            }
+            let color = await provider.coverColor(for: track)
+            withAnimation(.easeInOut(duration: 0.4)) { coverTint = color.map { Color(nsColor: $0) } }
         }
         .frame(width: size, height: size)
         .clipShape(Circle())
@@ -436,8 +551,8 @@ struct FloatingBallView: View {
         // 贴右边时露出左半边，进度从顶部沿左边走到底部；贴左边时反过来
         let mirror: CGFloat = edge == .right ? -1 : 1
         return ZStack {
-            halfArc(to: 1, color: Theme.track, width: ring, inset: ring / 2, mirror: mirror)
-            halfArc(to: fraction, color: Theme.text, width: ring, inset: ring / 2, mirror: mirror)
+            halfArc(to: 1, color: Theme.track, width: ring, inset: ringInset, mirror: mirror)
+            halfArc(to: fraction, color: Theme.text, width: ring, inset: ringInset, mirror: mirror)
             progressKnob(angle: .pi * max(0, min(1, fraction)), mirror: mirror)
                 .opacity(fraction > 0.01 ? 1 : 0)
 
@@ -450,7 +565,7 @@ struct FloatingBallView: View {
                         .foregroundStyle(Theme.text)
                 }
             }
-            .scaleEffect(min(1, size / 80))   // 球缩小了，音柱和三角也跟着小一点
+            .scaleEffect(size / 80)   // 球缩小了，音柱和三角也跟着小一点
             .offset(x: mirror * size / 4 + (edge == .right ? 1 : -1) * size * 0.1)   // 往球心挪一点
             .transition(.opacity)
         }
@@ -470,17 +585,16 @@ struct FloatingBallView: View {
 
     /// 进度头上的圆点（像 App 图标进度环末端那个）；angle 从正上方顺时针算
     private func progressKnob(angle: Double, mirror: CGFloat = 1) -> some View {
-        let r = size / 2 - ring / 2
+        let r = size / 2 - ringInset
         return Circle()
             .fill(Theme.text)
-            .frame(width: ring * 1.8, height: ring * 1.8)
+            .frame(width: knob, height: knob)
             .offset(x: mirror * r * CGFloat(sin(angle)), y: -r * CGFloat(cos(angle)))
     }
 
     /// 鼠标移上去时的按钮
     private var controls: some View {
         ZStack {
-            Circle().fill(Theme.bg.opacity(0.62)).allowsHitTesting(false)
             HStack(spacing: 4) {
                 ballButton("backward.end.fill", 11, help: "上一首") { player.previous() }
                 Button { player.togglePlayPause() } label: {
@@ -565,7 +679,7 @@ private struct FloatingLyricView: View {
         let visible = !line.isEmpty && ball.tuckedEdge == nil && mode != .off && (mode == .always || ball.hovering)
         ZStack {
             Text(line)
-                .font(.ui(14, .semibold))
+                .font(.ui(14 * ball.scale, .semibold))
                 .foregroundStyle(Theme.text)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -573,12 +687,12 @@ private struct FloatingLyricView: View {
                 .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity),
                                         removal: .move(edge: .top).combined(with: .opacity)))
         }
-        .padding(.horizontal, 16)
-        .frame(height: FloatingBall.lyricHeight)
+        .padding(.horizontal, 16 * ball.scale)
+        .frame(height: (36 * ball.scale).rounded())
         .clipped()
         .background {
             ZStack {
-                GlassBackground(cornerRadius: FloatingBall.lyricHeight / 2)
+                GlassBackground(cornerRadius: 18 * ball.scale)
                 Capsule().fill(Theme.card.opacity(0.35))
             }
         }
@@ -594,5 +708,42 @@ private struct FloatingLyricView: View {
     private var currentLine: String {
         guard player.lyricsState == .loaded, let i = player.currentLyricIndex, player.lyrics.indices.contains(i) else { return "" }
         return player.lyrics[i].text.trimmingCharacters(in: .whitespaces)
+    }
+}
+
+
+/// 「悬浮球大小」窗口的内容：滑块一动，悬浮球和歌词条马上跟着变
+private struct FloatingBallSizeView: View {
+    let done: () -> Void
+    @State private var value = Double(FloatingBall.size)
+
+    var body: some View {
+        VStack(spacing: 14) {
+            HStack(spacing: 10) {
+                Image(systemName: "circle").font(.system(size: 10, weight: .semibold)).foregroundStyle(Theme.text2)
+                Slider(value: $value, in: Double(FloatingBall.sizeRange.lowerBound)...Double(FloatingBall.sizeRange.upperBound))
+                    .onChange(of: value) { _, new in FloatingBall.shared.setSize(CGFloat(new)) }
+                Image(systemName: "circle").font(.system(size: 17, weight: .semibold)).foregroundStyle(Theme.text2)
+                Text("\(Int(value.rounded()))")
+                    .font(.ui(12, .semibold).monospacedDigit())
+                    .foregroundStyle(Theme.text)
+                    .frame(width: 30, alignment: .trailing)
+            }
+            HStack {
+                Button("恢复默认") { value = Double(FloatingBall.defaultSize) }
+                    .disabled(Int(value.rounded()) == Int(FloatingBall.defaultSize))
+                Spacer()
+                Button("完成", action: done).keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(18)
+        .frame(width: 320)
+    }
+}
+
+/// 调大小窗口关掉（点完成或左上角关闭）时通知悬浮球
+private final class SizePanelDelegate: NSObject, NSWindowDelegate {
+    func windowWillClose(_ notification: Notification) {
+        MainActor.assumeIsolated { FloatingBall.shared.sizeAdjusterClosed() }
     }
 }

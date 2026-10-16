@@ -181,6 +181,7 @@ struct TopBar: View {
                 Divider()
                 Toggle("自动联网获取缺少的封面和歌词", isOn: $autoFetch)
                 Toggle("播放时旋转封面", isOn: $spinCover)
+                Button("悬浮球大小…") { FloatingBall.shared.showSizeAdjuster(player: player) }
                 Picker("悬浮球歌词", selection: $floatingLyrics) {
                     ForEach(FloatingLyricsMode.allCases) { Text($0.label).tag($0) }
                 }
