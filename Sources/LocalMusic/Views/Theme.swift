@@ -204,38 +204,120 @@ private struct ShineBand: View {
 struct WindowDragArea: NSViewRepresentable {
     /// 不传就按标题栏的规则：铺满 / 恢复（见 WindowFill）
     var onDoubleClick: (() -> Void)?
-    /// 拖完松手时（悬浮球用来记住位置）
-    var onDragEnd: (() -> Void)?
 
     func makeNSView(context: Context) -> NSView { DragView() }
 
     func updateNSView(_ nsView: NSView, context: Context) {
         guard let view = nsView as? DragView else { return }
         view.onDoubleClick = onDoubleClick
-        view.onDragEnd = onDragEnd
     }
 
-    private final class DragView: NSView {
+    private final class DragView: NSView, DragRegionProviding {
         var onDoubleClick: (() -> Void)?
-        var onDragEnd: (() -> Void)?
 
-        /// 不把这块标成「系统可以直接拖」的区域，按下后由下面的 performDrag 交给系统拖：
-        /// 只有系统一个在挪窗口。以前这里标成可拖、又在 mouseDown 里拖（先是再调一次 performDrag，
-        /// 后来是自己按鼠标挪），两套同时在挪，跨屏时窗口会跳开、离鼠标很远
         override var mouseDownCanMoveWindow: Bool { false }
         override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard let window else { return }
+            // 关掉系统自己拖窗口（隐藏标题栏的 SwiftUI 窗口，顶上一块是系统直接拖的，Groove 收不到鼠标）。
+            // 系统拖在窗口差不多和屏幕一样大时，跨屏那一下会把窗口硬推到屏幕边上，之后一直偏着，离鼠标越来越远。
+            // 改成 WindowDragger 自己挪
+            window.isMovable = false
+            WindowDragger.install()
+        }
+
         override func mouseDown(with event: NSEvent) {
-            if event.clickCount == 2 {
-                if let onDoubleClick {
-                    onDoubleClick()
-                } else if let window {
-                    WindowFill.handleDoubleClick(window)
-                }
-            } else {
-                window?.performDrag(with: event)   // 系统拖：跨屏、菜单栏、分开的空间都由系统处理
-                onDragEnd?()
+            guard event.clickCount == 2 else { return super.mouseDown(with: event) }
+            if let onDoubleClick {
+                onDoubleClick()
+            } else if let window {
+                WindowFill.handleDoubleClick(window)
             }
         }
+
+        /// 这块在窗口里占的范围，往上一直算到窗口顶（包括红绿灯那一条）
+        func dragRegion() -> NSRect? {
+            guard let window, !isHiddenOrHasHiddenAncestor, bounds.width > 0 else { return nil }
+            let r = convert(bounds, to: nil)
+            return NSRect(x: r.minX, y: r.minY, width: r.width, height: window.frame.height - r.minY)
+        }
+    }
+}
+
+/// 能拖动窗口的区域（WindowDragArea 里的 DragView）
+@MainActor
+protocol DragRegionProviding: AnyObject {
+    func dragRegion() -> NSRect?
+}
+
+/// 主窗口拖动：按在顶栏（或正在播放页顶部）的空白处、按钮上都行，鼠标移动超过 3 点才开始拖；
+/// 每一步窗口位置 = 鼠标全局位置 − 按下时鼠标在窗口里的位置，鼠标抓哪儿窗口就一直粘在哪儿，跨屏也不偏。
+/// 搜索框里按下不拖（留给选文字）
+@MainActor
+enum WindowDragger {
+    private static var monitor: Any?
+    private static var press: (window: NSWindow, mouse: NSPoint, grab: NSPoint)?
+    private static var dragging = false
+
+    static func install() {
+        guard monitor == nil else { return }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp]) { event in
+            nonisolated(unsafe) let incoming = event
+            nonisolated(unsafe) var result: NSEvent? = event
+            MainActor.assumeIsolated { result = handle(incoming) }
+            return result
+        }
+    }
+
+    private static func handle(_ event: NSEvent) -> NSEvent? {
+        let mouse = NSEvent.mouseLocation
+        switch event.type {
+        case .leftMouseDown:
+            press = nil
+            dragging = false
+            guard event.clickCount == 1, let window = event.window, !window.isMovable,
+                  !(window.styleMask.contains(.fullScreen)), inDragRegion(event, window) else { return event }
+            press = (window, mouse, NSPoint(x: mouse.x - window.frame.minX, y: mouse.y - window.frame.minY))
+            return event
+        case .leftMouseDragged:
+            guard let press else { return event }
+            if !dragging {
+                guard hypot(mouse.x - press.mouse.x, mouse.y - press.mouse.y) >= 3 else { return event }
+                dragging = true
+            }
+            let origin = NSPoint(x: (mouse.x - press.grab.x).rounded(), y: (mouse.y - press.grab.y).rounded())
+            if press.window.frame.origin != origin { press.window.setFrameOrigin(origin) }
+            return nil
+        case .leftMouseUp:
+            defer { press = nil; dragging = false }
+            guard dragging else { return event }
+            // 拖完松手的位置可能正好在按钮上：把这次松开挪到窗口外面，按钮就不会被误点
+            return NSEvent.mouseEvent(with: .leftMouseUp, location: NSPoint(x: -10000, y: -10000),
+                                      modifierFlags: event.modifierFlags, timestamp: event.timestamp,
+                                      windowNumber: event.windowNumber, context: nil,
+                                      eventNumber: event.eventNumber, clickCount: event.clickCount,
+                                      pressure: event.pressure)
+        default:
+            return event
+        }
+    }
+
+    /// 按在某个拖动区里，而且不是在输入框里
+    private static func inDragRegion(_ event: NSEvent, _ window: NSWindow) -> Bool {
+        guard let content = window.contentView else { return false }
+        let point = event.locationInWindow
+        if let hit = content.superview?.hitTest(point) ?? content.hitTest(point), hit is NSText || hit is NSTextField {
+            return false
+        }
+        return dragViews(in: content).contains { $0.dragRegion()?.contains(point) ?? false }
+    }
+
+    private static func dragViews(in view: NSView) -> [NSView & DragRegionProviding] {
+        var found: [NSView & DragRegionProviding] = []
+        if let v = view as? NSView & DragRegionProviding { found.append(v) }
+        for sub in view.subviews { found += dragViews(in: sub) }
+        return found
     }
 }
