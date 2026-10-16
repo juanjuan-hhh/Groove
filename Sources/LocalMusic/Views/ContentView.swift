@@ -109,6 +109,7 @@ struct TopBar: View {
     @AppStorage(AppearanceMode.key) private var appearance: AppearanceMode = .dark
     @AppStorage(SpinningArtwork.enabledKey) private var spinCover = true
     @AppStorage(FloatingLyricsMode.key) private var floatingLyrics: FloatingLyricsMode = .always
+    @AppStorage(FloatingLyricsMode.whenTuckedKey) private var lyricsWhenTucked = false
 
     var body: some View {
         HStack(spacing: 14) {
@@ -185,6 +186,8 @@ struct TopBar: View {
                 Picker("悬浮球歌词", selection: $floatingLyrics) {
                     ForEach(FloatingLyricsMode.allCases) { Text($0.label).tag($0) }
                 }
+                Toggle("贴边时也显示歌词", isOn: $lyricsWhenTucked)
+                    .disabled(floatingLyrics == .off)
                 Picker("外观", selection: $appearance) {
                     ForEach(AppearanceMode.allCases) { Text($0.label).tag($0) }
                 }
@@ -201,9 +204,9 @@ struct TopBar: View {
             IconButton(systemName: "circle.circle", size: 13, help: "切换到悬浮球（⇧⌘M）") {
                 FloatingBall.shared.enter(player: player)
             }
-            .foregroundStyle(Theme.text2)
+            .foregroundStyle(Theme.accent)
             .frame(width: 22, height: 22)
-            .disabled(player.current == nil).opacity(player.current == nil ? 0.35 : 1)
+            .disabled(player.current == nil).opacity(player.current == nil ? 0.4 : 1)
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 9)

@@ -256,8 +256,8 @@ final class FloatingBall {
             context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             panel.animator().setFrame(frame, display: true)
         } completionHandler: {
-            // 歌词条跟着球一起挪过了，滑出来以后再按完整的球对齐一次
-            if !tucked { MainActor.assumeIsolated { FloatingBall.shared.positionLyricPanel(for: frame) } }
+            // 歌词条跟着球一起挪过了，滑完以后再按球现在的位置对齐一次（贴边时也可能显示歌词条）
+            MainActor.assumeIsolated { FloatingBall.shared.positionLyricPanel(for: frame) }
         }
     }
 
@@ -287,7 +287,7 @@ final class FloatingBall {
     /// 打开调大小的小窗口，同时把悬浮球放出来，边拖滑块边看
     func showSizeAdjuster(player: PlayerController) {
         if let sizePanel, sizePanel.isVisible {
-            sizePanel.makeKeyAndOrderFront(nil)
+            sizePanel.orderFrontRegardless()
             return
         }
         shownBeforeAdjusting = isShown
@@ -303,12 +303,13 @@ final class FloatingBall {
         if let screen = (panel?.screen ?? NSScreen.main)?.visibleFrame {
             window.setFrameOrigin(NSPoint(x: screen.midX - window.frame.width / 2, y: screen.midY - window.frame.height / 2))
         }
-        NSApp.activate(ignoringOtherApps: true)
-        window.makeKeyAndOrderFront(nil)
+        window.orderFrontRegardless()
+        window.invalidateShadow()
     }
 
-    /// 调大小窗口关掉了：之前没开悬浮球就回主窗口，开着就留着
-    fileprivate func sizeAdjusterClosed() {
+    /// 调大小卡片点了「完成」：之前没开悬浮球就回主窗口，开着就留着
+    fileprivate func closeSizeAdjuster() {
+        sizePanel?.orderOut(nil)
         adjustingSize = false
         if shownBeforeAdjusting {
             scheduleTuck(after: 1.5)
@@ -337,21 +338,23 @@ final class FloatingBall {
         UserDefaults.standard.set(NSStringFromPoint(frame.origin), forKey: Self.originKey)
     }
 
+    /// 无边框的小卡片（和 App 里其他卡片一样的配色），不抢焦点
     private func makeSizePanel() -> NSPanel {
-        let window = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 300, height: 120),
-                             styleMask: [.titled, .closable, .utilityWindow], backing: .buffered, defer: false)
-        window.title = "悬浮球大小"
+        let window = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 320, height: 130),
+                             styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         window.level = .floating
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.hasShadow = true
         window.hidesOnDeactivate = false
         window.isReleasedWhenClosed = false
-        window.delegate = sizePanelDelegate
-        let host = NSHostingView(rootView: FloatingBallSizeView { window.close() }.modifier(ThemedAppearance()))
+        let host = ClickThroughHostingView(rootView: FloatingBallSizeView { FloatingBall.shared.closeSizeAdjuster() }
+            .modifier(ThemedAppearance()))
         window.contentView = host
         window.setContentSize(host.fittingSize)
         return window
     }
-
-    @ObservationIgnored private let sizePanelDelegate = SizePanelDelegate()
 
     // MARK: 歌词条
 
@@ -466,8 +469,8 @@ struct FloatingBallView: View {
 
     /// 藏起一半时变小
     private var size: CGFloat { FloatingBall.shared.ballSize }
-    /// 进度环粗细：球调大时跟着变粗一点，调小不再变细
-    private var ring: CGFloat { 5 * max(1, size / FloatingBall.defaultSize) }
+    /// 进度环粗细：跟着设置里的悬浮球大小一起变粗变细（贴边缩小时不变）
+    private var ring: CGFloat { 5 * FloatingBall.shared.scale }
     /// 进度头圆点的直径
     private var knob: CGFloat { ring * 1.8 }
     /// 进度环往里收这么多，圆点整个落在球里面，不会被圆形边缘裁掉半个
@@ -610,11 +613,6 @@ struct FloatingBallView: View {
                 .help(player.isPlaying ? "暂停" : "播放")
                 ballButton("forward.end.fill", 11, help: "下一首") { player.next() }
             }
-            VStack {
-                ballButton("arrow.up.left.and.arrow.down.right", 9, help: "返回主窗口") { FloatingBall.shared.exit() }
-                    .padding(.top, 10)
-                Spacer()
-            }
         }
     }
 
@@ -659,6 +657,8 @@ enum FloatingLyricsMode: String, CaseIterable, Identifiable {
     case off, hover, always
     var id: Self { self }
     static let key = "floatingLyricsMode"
+    /// 贴边藏起一半时也显示歌词条
+    static let whenTuckedKey = "floatingLyricsWhenTucked"
     var label: String {
         switch self {
         case .off: return "关闭"
@@ -672,11 +672,13 @@ enum FloatingLyricsMode: String, CaseIterable, Identifiable {
 private struct FloatingLyricView: View {
     @Environment(PlayerController.self) private var player
     @AppStorage(FloatingLyricsMode.key) private var mode: FloatingLyricsMode = .always
+    @AppStorage(FloatingLyricsMode.whenTuckedKey) private var showWhenTucked = false
 
     var body: some View {
         let ball = FloatingBall.shared
         let line = currentLine
-        let visible = !line.isEmpty && ball.tuckedEdge == nil && mode != .off && (mode == .always || ball.hovering)
+        let visible = !line.isEmpty && (ball.tuckedEdge == nil || showWhenTucked)
+            && mode != .off && (mode == .always || ball.hovering)
         ZStack {
             Text(line)
                 .font(.ui(14 * ball.scale, .semibold))
@@ -712,38 +714,81 @@ private struct FloatingLyricView: View {
 }
 
 
-/// 「悬浮球大小」窗口的内容：滑块一动，悬浮球和歌词条马上跟着变
+/// 「悬浮球大小」卡片：粗胶囊滑条 + 赭橙进度，滑块一动，悬浮球和歌词条马上跟着变
 private struct FloatingBallSizeView: View {
     let done: () -> Void
-    @State private var value = Double(FloatingBall.size)
+    @State private var value = FloatingBall.size
+
+    private let range = FloatingBall.sizeRange
+    private let knob: CGFloat = 18
 
     var body: some View {
-        VStack(spacing: 14) {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text("悬浮球大小").font(.ui(14, .bold)).foregroundStyle(Theme.text)
+                Spacer()
+                ChipText(text: "\(Int(value))", color: Theme.surface, foreground: Theme.text, font: .ui(12, .bold).monospacedDigit())
+            }
             HStack(spacing: 10) {
-                Image(systemName: "circle").font(.system(size: 10, weight: .semibold)).foregroundStyle(Theme.text2)
-                Slider(value: $value, in: Double(FloatingBall.sizeRange.lowerBound)...Double(FloatingBall.sizeRange.upperBound))
-                    .onChange(of: value) { _, new in FloatingBall.shared.setSize(CGFloat(new)) }
-                Image(systemName: "circle").font(.system(size: 17, weight: .semibold)).foregroundStyle(Theme.text2)
-                Text("\(Int(value.rounded()))")
-                    .font(.ui(12, .semibold).monospacedDigit())
-                    .foregroundStyle(Theme.text)
-                    .frame(width: 30, alignment: .trailing)
+                Image(systemName: "circle").font(.system(size: 9, weight: .bold)).foregroundStyle(Theme.text2)
+                slider
+                Image(systemName: "circle").font(.system(size: 16, weight: .bold)).foregroundStyle(Theme.text2)
             }
             HStack {
-                Button("恢复默认") { value = Double(FloatingBall.defaultSize) }
-                    .disabled(Int(value.rounded()) == Int(FloatingBall.defaultSize))
+                Button { set(FloatingBall.defaultSize) } label: {
+                    ChipText(text: "恢复默认", color: Theme.surface, foreground: Theme.text, font: .ui(12, .semibold),
+                             hPad: 14, vPad: 6)
+                }
+                .buttonStyle(.plain)
+                .disabled(value == FloatingBall.defaultSize)
+                .opacity(value == FloatingBall.defaultSize ? 0.45 : 1)
                 Spacer()
-                Button("完成", action: done).keyboardShortcut(.defaultAction)
+                Button(action: done) {
+                    ChipText(text: "完成", color: Theme.accent, foreground: Theme.ink, font: .ui(12, .bold), hPad: 18, vPad: 6)
+                }
+                .buttonStyle(.plain)
             }
         }
-        .padding(18)
+        .padding(20)
         .frame(width: 320)
+        .background {
+            RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous).fill(Theme.card)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous).stroke(Theme.line, lineWidth: 1)
+        }
+        .foregroundStyle(Theme.text)
+    }
+
+    private var slider: some View {
+        GeometryReader { geo in
+            let width = geo.size.width
+            let t = (value - range.lowerBound) / (range.upperBound - range.lowerBound)
+            ZStack(alignment: .leading) {
+                CapsuleBar(value: t, height: 6)
+                Circle()
+                    .fill(Theme.text)
+                    .frame(width: knob, height: knob)
+                    .shadow(color: .black.opacity(0.25), radius: 2, y: 1)
+                    .offset(x: t * (width - knob))
+            }
+            .frame(height: knob)
+            .contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 0).onChanged { drag in
+                let p = min(1, max(0, (drag.location.x - knob / 2) / (width - knob)))
+                set(range.lowerBound + p * (range.upperBound - range.lowerBound))
+            })
+        }
+        .frame(height: knob)
+    }
+
+    private func set(_ new: CGFloat) {
+        value = new.rounded()
+        FloatingBall.shared.setSize(value)
     }
 }
 
-/// 调大小窗口关掉（点完成或左上角关闭）时通知悬浮球
-private final class SizePanelDelegate: NSObject, NSWindowDelegate {
-    func windowWillClose(_ notification: Notification) {
-        MainActor.assumeIsolated { FloatingBall.shared.sizeAdjusterClosed() }
-    }
+/// 调大小卡片不抢焦点，第一次点就响应
+private final class ClickThroughHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
