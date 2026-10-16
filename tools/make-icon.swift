@@ -1,4 +1,4 @@
-// 生成 App 图标（贴近 Apple Music 图标的风格，带 Porthole 的赭橙进度环）：
+// 生成 App 图标（贴近 Apple Music 图标的风格，外圈一条进度环）：
 //   swift tools/make-icon.swift Support/AppIcon-1024.png            深色版（黑底，打包进 .icns）
 //   swift tools/make-icon.swift Support/AppIcon-light.png --light   浅色版（白底，App 选浅色时用作程序坞图标）
 // 然后用 sips + iconutil 生成 Support/AppIcon.icns。
@@ -9,7 +9,7 @@ func c(_ hex: UInt32, _ a: CGFloat = 1) -> CGColor {
 let N = 1024
 let light = CommandLine.arguments.contains("--light")
 // 风格贴近 macOS 的 Apple Music 图标：柔和的渐变圆角方块 + 居中的大号粗音符，
-// 外面留一圈细细的赭橙进度环作为 Groove 的标志。
+// 外面留一圈进度环，颜色和音符一样作为 Groove 的标志。
 //                 深色版     浅色版
 let topColor    = light ? 0xFFFFFF : 0x2C2D32   // 底色渐变：上
 let bottomColor = light ? 0xE4E4E8 : 0x050506   // 底色渐变：下
@@ -39,12 +39,12 @@ ctx.addPath(CGPath(roundedRect: body.insetBy(dx: 2, dy: 2), cornerWidth: 183, co
 ctx.setStrokeColor(c(UInt32(edgeColor), 0.8)); ctx.setLineWidth(4); ctx.strokePath()
 
 let center = CGPoint(x: 512, y: 512)
-// 外圈：淡淡的轨道 + 细的赭橙进度环（Porthole 表盘圆环）
-let ringR: CGFloat = 330, ringW: CGFloat = 22
+// 外圈：淡淡的轨道 + 和音符同色的进度环
+let ringR: CGFloat = 330, ringW: CGFloat = 30
 ctx.setStrokeColor(c(UInt32(trackColor))); ctx.setLineWidth(ringW)
 ctx.addEllipse(in: CGRect(x: center.x - ringR, y: center.y - ringR, width: 2 * ringR, height: 2 * ringR)); ctx.strokePath()
 // 角度：0 = 正上方，顺时针
-ctx.setStrokeColor(c(0xE07A47)); ctx.setLineWidth(ringW); ctx.setLineCap(.round)
+ctx.setStrokeColor(c(UInt32(noteColor))); ctx.setLineWidth(ringW); ctx.setLineCap(.round)
 ctx.addArc(center: center, radius: ringR, startAngle: .pi / 2, endAngle: .pi / 2 - 250 * .pi / 180, clockwise: true)
 ctx.strokePath()
 
