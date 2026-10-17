@@ -129,18 +129,70 @@ private struct MiniLyricLine: View {
     }
 }
 
+/// 底栏最上面那条细进度线：点一下跳转，按住拖动预览、松手跳转（和正在播放页的进度条一样走 scrubTime）
 private struct MiniProgressLine: View {
     @Environment(PlayerController.self) private var player
+    @State private var hovering = false
+
+    /// 看得见的线只有 2pt 高，能点的范围上下各放宽一点
+    private static let hitHeight: CGFloat = 12
+
+    private var dragTime: Double? {
+        get { player.scrubTime }
+        nonmutating set { player.scrubTime = newValue }
+    }
 
     var body: some View {
-        GeometryReader { geo in
-            let fraction = player.duration > 0 ? min(1, player.currentTime / player.duration) : 0
-            ZStack(alignment: .leading) {
-                Rectangle().fill(Theme.track)
-                Rectangle().fill(Theme.accent).frame(width: geo.size.width * fraction)
+        let enabled = player.current != nil && player.duration > 0
+        let active = enabled && (hovering || dragTime != nil)
+        let time = dragTime ?? player.currentTime
+        let fraction = player.duration > 0 ? min(1, max(0, time / player.duration)) : 0
+        Color.clear
+            .frame(height: 2)
+            .overlay(alignment: .top) {
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Rectangle().fill(Theme.track)
+                        Rectangle().fill(Theme.accent).frame(width: geo.size.width * fraction)
+                    }
+                    .frame(height: active ? 4 : 2)
+                    // 悬停 / 拖动时线头冒出一个小圆点
+                    .overlay(alignment: .leading) {
+                        Circle()
+                            .fill(Theme.accent)
+                            .frame(width: 10, height: 10)
+                            .shadow(color: .black.opacity(0.3), radius: 2, y: 1)
+                            .scaleEffect(active ? 1 : 0.01)
+                            .opacity(active ? 1 : 0)
+                            .offset(x: geo.size.width * fraction - 5)
+                            .allowsHitTesting(false)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                    // 子视图的手势优先，按在这里不会触发底栏「点击打开正在播放」
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { value in
+                                guard enabled, geo.size.width > 0 else { return }
+                                dragTime = min(1, max(0, value.location.x / geo.size.width)) * player.duration
+                            }
+                            .onEnded { _ in
+                                if let t = dragTime { player.seek(to: t) }
+                                dragTime = nil
+                            },
+                        including: enabled ? .all : .none
+                    )
+                }
+                .frame(height: Self.hitHeight)
+                .offset(y: 1 - Self.hitHeight / 2)
+                .onHover { inside in
+                    hovering = inside
+                    if inside && enabled { NSCursor.pointingHand.set() } else { NSCursor.arrow.set() }
+                }
+                .help(enabled ? "点击或拖动跳转" : "")
+                .animation(.easeOut(duration: 0.12), value: active)
             }
-        }
-        .frame(height: 2)
+            .zIndex(1)
     }
 }
 
