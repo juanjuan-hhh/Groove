@@ -525,6 +525,13 @@ final class PlayerController {
     /// 先选好输出设备、独占时切采样率，再做出要播放的 item。
     /// DSD 文件变成虚拟 WAV：独占 + 选了 DoP + 声卡支持时用 DoP，否则转成 PCM
     private func makeItem(for track: Track) -> AVPlayerItem {
+        let item = makeRawItem(for: track)
+        // 不要任何空间音频之类的系统处理，原样输出
+        item.allowedAudioSpatializationFormats = []
+        return item
+    }
+
+    private func makeRawItem(for track: Track) -> AVPlayerItem {
         dsdLoader = nil
         guard track.isDSD else {
             stream = .file
@@ -569,8 +576,9 @@ final class PlayerController {
     private func prepareOutput(for track: Track) {
         let output = ExclusiveOutput.shared
         switch stream {
-        case .file: output.prepare(player: player, sampleRate: track.sampleRate)
-        case .dsdPCM(let rate, _): output.prepare(player: player, sampleRate: rate)
+        case .file: output.prepare(player: player, sampleRate: track.sampleRate, bitDepth: track.bitDepth)
+        // DSD 转成的是 32 位浮点，按 24 位整数以上送出去
+        case .dsdPCM(let rate, _): output.prepare(player: player, sampleRate: rate, bitDepth: 24)
         case .dop(let rate): output.prepare(player: player, sampleRate: rate, dop: true)
         }
     }

@@ -53,6 +53,7 @@ final class ExclusiveOutput {
     @ObservationIgnored private var dopFormatReady = false
     @ObservationIgnored private weak var player: AVPlayer?
     @ObservationIgnored private var lastTrackRate: Double = 0
+    @ObservationIgnored private var lastBitDepth = 0
     @ObservationIgnored private var lastDoP = false
     @ObservationIgnored private var idleRelease: Task<Void, Never>?
     @ObservationIgnored private var noticeTask: Task<Void, Never>?
@@ -94,10 +95,12 @@ final class ExclusiveOutput {
     // MARK: 播放器调用
 
     /// 每首歌开始播放前调用：选设备、独占、按这首歌切采样率
+    /// bitDepth：源文件位深，声卡是整数格式而且位数比它低时，换成声卡支持的最高整数位深（不然 24 位的歌会被截成 16 位）
     /// dop：这首是 DoP 打包的 DSD，声卡还要设成 24/32 位整数格式（浮点格式到不了解码器的原样数据）
-    func prepare(player: AVPlayer, sampleRate: Double, dop: Bool = false) {
+    func prepare(player: AVPlayer, sampleRate: Double, bitDepth: Int = 0, dop: Bool = false) {
         self.player = player
         lastTrackRate = sampleRate
+        lastBitDepth = bitDepth
         lastDoP = dop
         dopFormatReady = false
         idleRelease?.cancel()
@@ -114,16 +117,30 @@ final class ExclusiveOutput {
             held = (id, Self.nominalRate(id))
             Self.setHog(id, take: true)
         }
-        // 切采样率是异步生效的，刚设完马上读还是旧值，所以设成功就直接记目标值
+        // 切采样率是异步生效的：设完等声卡确认真的切好了再开始放（最多 0.5 秒），
+        // 不然播放器可能按旧采样率先建好输出，在里面偷偷重采样
         var rate = Self.nominalRate(id)
         if sampleRate > 0, let best = Self.bestRate(for: sampleRate, on: id), best != rate, Self.setNominalRate(id, best) {
             rate = best
+            Self.wait { Self.nominalRate(id) == best }
         }
         // 独占后一定指定到这个设备（跟随系统时也写死，免得系统默认变了又跑去别的设备）
         let deviceUID = Self.uid(of: id)
         if player.audioOutputDeviceUniqueID != deviceUID { player.audioOutputDeviceUniqueID = deviceUID }
         outputRate = rate
-        if dop { dopFormatReady = setIntegerFormat(id, rate: rate) }
+        if dop {
+            dopFormatReady = setIntegerFormat(id, rate: rate, prefer: [24, 32])
+        } else if let current = DeviceStatus.physicalFormat(id), current.mFormatFlags & kAudioFormatFlagIsFloat == 0,
+                  Int(current.mBitsPerChannel) < max(24, bitDepth) {
+            // PCM：声卡是 16 位整数之类时换成最高的整数位深（32 位整数或 24 位），16/24 位的歌都原样送到解码器
+            _ = setIntegerFormat(id, rate: rate, prefer: [32, 24])
+        }
+    }
+
+    /// 等声卡的设置真的生效（采样率、格式都是异步改的），最多等 timeout 秒
+    private nonisolated static func wait(timeout: Double = 0.5, until done: () -> Bool) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !done() && Date() < deadline { usleep(5_000) }
     }
 
     /// DoP 现在能不能用；不能用时返回原因（音频链路里显示）
@@ -135,8 +152,8 @@ final class ExclusiveOutput {
         return nil
     }
 
-    /// 把声卡第一个输出流设成这个采样率下的 24 位（没有就 32 位）整数格式
-    private func setIntegerFormat(_ id: AudioDeviceID, rate: Double) -> Bool {
+    /// 把声卡第一个输出流设成这个采样率下的整数格式，位数按 prefer 的顺序挑（DoP 要 24 位优先，PCM 越高越好）
+    private func setIntegerFormat(_ id: AudioDeviceID, rate: Double, prefer: [UInt32]) -> Bool {
         guard let stream = DeviceStatus.outputStreams(id).first else { return false }
         var addr = Self.address(kAudioStreamPropertyAvailablePhysicalFormats)
         var size: UInt32 = 0
@@ -151,15 +168,20 @@ final class ExclusiveOutput {
                 && $0.mSampleRateRange.mMinimum <= rate && rate <= $0.mSampleRateRange.mMaximum
                 && ($0.mFormat.mBitsPerChannel == 24 || $0.mFormat.mBitsPerChannel == 32)
         }
-        guard var best = (candidates.first { $0.mFormat.mBitsPerChannel == 24 } ?? candidates.first)?.mFormat else { return false }
+        let ranked = prefer.lazy.compactMap { bits in candidates.first { $0.mFormat.mBitsPerChannel == bits } }.first
+        guard var best = (ranked ?? candidates.first)?.mFormat else { return false }
         best.mSampleRate = rate
         guard let current = DeviceStatus.physicalFormat(id) else { return false }
         if current.mBitsPerChannel == best.mBitsPerChannel, current.mFormatFlags == best.mFormatFlags,
            current.mSampleRate == rate { return true }
         if originalFormat == nil { originalFormat = (stream, current) }
         var addrSet = Self.address(kAudioStreamPropertyPhysicalFormat)
-        return AudioObjectSetPropertyData(stream, &addrSet, 0, nil,
-                                          UInt32(MemoryLayout<AudioStreamBasicDescription>.size), &best) == noErr
+        guard AudioObjectSetPropertyData(stream, &addrSet, 0, nil,
+                                         UInt32(MemoryLayout<AudioStreamBasicDescription>.size), &best) == noErr else { return false }
+        // 格式也是异步生效的，等它真的换好
+        let bits = best.mBitsPerChannel
+        Self.wait { DeviceStatus.physicalFormat(id).map { $0.mBitsPerChannel == bits && $0.mSampleRate == rate } ?? false }
+        return true
     }
 
     /// 暂停时调用：暂停超过一会儿就把设备还给系统（别的 App 又能出声）
@@ -197,7 +219,7 @@ final class ExclusiveOutput {
     private func reapply() {
         guard let player, player.currentItem != nil else { return }
         if player.rate > 0 || !enabled {
-            prepare(player: player, sampleRate: lastTrackRate, dop: lastDoP)
+            prepare(player: player, sampleRate: lastTrackRate, bitDepth: lastBitDepth, dop: lastDoP)
         }
     }
 
