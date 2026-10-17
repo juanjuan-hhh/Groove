@@ -38,6 +38,9 @@ struct ContentView: View {
                             .clipped()
                     }
                     Theme.bg.opacity(AppBackground.shared.dim)
+                    // 顶上标题、分类、表头那一块再压暗一点：图片上面亮的地方字也看得清
+                    LinearGradient(colors: [Theme.bg.opacity(0.45), Theme.bg.opacity(0)],
+                                   startPoint: .top, endPoint: .init(x: 0.5, y: 0.4))
                 } else {
                     WindowGlass()
                     Theme.bg.opacity(0.72)
@@ -171,7 +174,7 @@ struct TopBar: View {
                 } else {
                     Text(searchText.isEmpty ? "搜索歌名、歌手、拼音" : searchText)
                         .font(.ui(12))
-                        .foregroundStyle(searchText.isEmpty ? Theme.text3 : Theme.text)
+                        .foregroundStyle(searchText.isEmpty ? Theme.faint : Theme.text)
                         .lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -185,7 +188,7 @@ struct TopBar: View {
             .padding(.horizontal, 11)
             .padding(.vertical, 5)
             .background(Capsule().fill(Theme.card))
-            .overlay(Capsule().stroke(searchText.isEmpty ? Theme.line : Theme.accent, lineWidth: 1))
+            .overlay(Capsule().stroke(searchText.isEmpty ? Theme.divider : Theme.accent, lineWidth: 1))
             .frame(width: 200)
 
             SleepTimerMenu(size: 13)
@@ -298,7 +301,7 @@ struct EmptyLibraryView: View {
         VStack(spacing: 16) {
             Image(systemName: "music.note.house")
                 .font(.system(size: 56))
-                .foregroundStyle(Theme.text3)
+                .foregroundStyle(Theme.faint)
             Text("还没有添加音乐").font(.ui(22, .bold))
             Text("选择存放音乐的文件夹，会自动扫描里面所有的歌曲（包括子文件夹）。")
                 .font(.ui(14))

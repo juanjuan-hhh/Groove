@@ -23,7 +23,7 @@ struct MiniPlayerBar: View {
                         Text(track?.title ?? "未在播放").font(.ui(14, .bold))
                             .foregroundStyle(track == nil ? Theme.text2 : Theme.text).lineLimit(1)
                         Text(track?.artist ?? (library.tracks.isEmpty ? "先添加音乐文件夹" : "双击一首歌，或点播放键开始"))
-                            .font(.ui(12)).foregroundStyle(Theme.text2).lineLimit(1)
+                            .font(.ui(12)).foregroundStyle(Theme.secondary).lineLimit(1)
                     }
                     .frame(maxWidth: 240, alignment: .leading)
                 }

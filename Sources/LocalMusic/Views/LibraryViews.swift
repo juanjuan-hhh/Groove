@@ -16,7 +16,7 @@ struct AlbumsView: View {
                                 Text(album.name).font(.ui(13, .semibold)).foregroundStyle(Theme.text).lineLimit(1)
                                 Text("\(album.subtitle) · \(album.tracks.count) 首")
                                     .font(.ui(11))
-                                    .foregroundStyle(Theme.text2)
+                                    .foregroundStyle(Theme.secondary)
                                     .lineLimit(1)
                             }
                             .frame(width: 150)
@@ -96,7 +96,7 @@ struct GroupDetailView: View {
                 ArtworkView(track: group.tracks.first, size: 96, cornerRadius: 14, circle: circle)
                 VStack(alignment: .leading, spacing: 6) {
                     Text(group.name).font(.ui(22, .bold)).foregroundStyle(Theme.text).lineLimit(2)
-                    Text(group.subtitle).font(.ui(13)).foregroundStyle(Theme.text2).lineLimit(1)
+                    Text(group.subtitle).font(.ui(13)).foregroundStyle(Theme.secondary).lineLimit(1)
                 }
                 Spacer()
             }
@@ -174,7 +174,7 @@ struct PlaylistsView: View {
                     if let playlist = library.playlist(id) {
                         PlaylistDetailView(title: playlist.name, tracks: library.tracks(in: playlist), playlistID: id)
                     } else {
-                        Text("歌单已删除").foregroundStyle(Theme.text2)
+                        Text("歌单已删除").foregroundStyle(Theme.secondary)
                     }
                 }
             }

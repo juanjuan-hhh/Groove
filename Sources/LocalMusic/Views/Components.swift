@@ -178,10 +178,10 @@ struct GroupRow<Leading: View>: View {
             leading()
             VStack(alignment: .leading, spacing: 3) {
                 Text(title).font(.ui(14, .medium)).foregroundStyle(Theme.text).lineLimit(1)
-                Text(subtitle).font(.ui(12)).foregroundStyle(Theme.text2).lineLimit(1)
+                Text(subtitle).font(.ui(12)).foregroundStyle(Theme.secondary).lineLimit(1)
             }
             Spacer()
-            Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.text3)
+            Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.faint)
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 8)

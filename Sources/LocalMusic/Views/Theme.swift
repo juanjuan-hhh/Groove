@@ -27,6 +27,16 @@ enum Theme {
     static let mustard = dynamic(0xD4A72C, 0xC9961A)     // 芥末黄
     static let sage = dynamic(0x8FA68F, 0x6B8C6B)        // 鼠尾草绿
 
+    // MARK: 用了自定义背景图时（背景是图片，不是纯色）：分隔线换成淡淡的亮线，最淡的文字提亮一档，免得看不清
+
+    @MainActor static var hasBackgroundImage: Bool { AppBackground.shared.image != nil }
+    /// 分隔线
+    @MainActor static var divider: Color { hasBackgroundImage ? text.opacity(0.12) : line }
+    /// 表头、占位字这类最淡的文字
+    @MainActor static var faint: Color { hasBackgroundImage ? text2 : text3 }
+    /// 说明文字（歌手、专辑、格式、时长……）：背景是图片时用正文色压淡一点，比固定的灰色更看得清
+    @MainActor static var secondary: Color { hasBackgroundImage ? text.opacity(0.75) : text2 }
+
     /// 主强调色：正在播放、播放按钮、进度
     static let accent = terra
     /// 进度条上滑过的光带
@@ -122,7 +132,7 @@ extension Font {
 /// 细分隔线
 struct ThemeDivider: View {
     var body: some View {
-        Rectangle().fill(Theme.line).frame(height: 1)
+        Rectangle().fill(Theme.divider).frame(height: 1)
     }
 }
 
