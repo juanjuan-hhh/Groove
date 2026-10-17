@@ -32,6 +32,17 @@ final class FloatingBall {
     static let autoDockKey = "floatingBallAutoDock"
     static var autoDock: Bool { UserDefaults.standard.object(forKey: autoDockKey) as? Bool ?? true }
 
+    /// 「始终置顶」：球（和歌词胶囊、播放队列）一直在所有窗口上面；关掉后是普通窗口，会被别的窗口盖住（默认开）
+    static let onTopKey = "floatingBallOnTop"
+    static var onTop: Bool { UserDefaults.standard.object(forKey: onTopKey) as? Bool ?? true }
+    static var windowLevel: NSWindow.Level { onTop ? .statusBar : .normal }
+
+    func setOnTop(_ on: Bool) {
+        UserDefaults.standard.set(on, forKey: Self.onTopKey)
+        for window in [panel, lyricPanel, queuePanel].compactMap({ $0 }) { window.level = Self.windowLevel }
+        if let panel, panel.isVisible { panel.orderFrontRegardless() }
+    }
+
     /// 「一直显示悬浮球」：主窗口开着时悬浮球也在
     static let alwaysKey = "floatingBallAlways"
     static var alwaysOn: Bool { UserDefaults.standard.bool(forKey: alwaysKey) }
@@ -503,6 +514,9 @@ final class FloatingBall {
         menu.addItem(item("贴边时也显示歌词", checked: whenTucked, enabled: mode != .off) {
             UserDefaults.standard.set(!whenTucked, forKey: FloatingLyricsMode.whenTuckedKey)
         })
+        menu.addItem(item("始终置顶", checked: Self.onTop) {
+            FloatingBall.shared.setOnTop(!FloatingBall.onTop)
+        })
         menu.addItem(item("自动贴边", checked: Self.autoDock) {
             FloatingBall.shared.setAutoDock(!FloatingBall.autoDock)
         })
@@ -567,7 +581,7 @@ final class FloatingBall {
     private func makeQueuePanel(player: PlayerController) -> NSPanel {
         let window = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 320, height: 420),
                              styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-        window.level = .floating
+        window.level = Self.windowLevel
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         window.isOpaque = false
         window.backgroundColor = .clear
@@ -632,7 +646,7 @@ final class FloatingBall {
     private func makeLyricPanel(player: PlayerController) -> NSPanel {
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: lyricWidth, height: lyricHeight),
                             styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-        panel.level = .floating
+        panel.level = Self.windowLevel
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         panel.isOpaque = false
         panel.backgroundColor = .clear
@@ -652,7 +666,7 @@ final class FloatingBall {
         menuPlayer = player
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: Self.size, height: Self.size),
                             styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-        panel.level = .floating
+        panel.level = Self.windowLevel
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         panel.isOpaque = false
         panel.backgroundColor = .clear
