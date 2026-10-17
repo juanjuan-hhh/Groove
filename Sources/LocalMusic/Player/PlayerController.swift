@@ -143,6 +143,93 @@ final class PlayerController {
         setLyricOffset(lineTime - currentTime - 0.15)
     }
 
+    // MARK: 歌词自动对齐
+
+    enum AlignState: Equatable {
+        case idle
+        case running
+        /// 结果提示，例如「已对齐：歌词延后 0.8s」「没把握，未修改」
+        case done(String)
+    }
+
+    private(set) var alignState: AlignState = .idle
+    /// 自动对齐之前的偏移（「撤销」用），没有可撤销的时为 nil
+    private(set) var alignUndo: Double?
+    /// 没把握时的估计值（可以手动选择「仍然使用」）
+    private(set) var alignGuess: Double?
+    @ObservationIgnored private var alignTask: Task<Void, Never>?
+
+    /// 从音频里找人声进来的时刻，算出整首歌词该提前 / 延后多少（见 LyricAligner），有把握才改
+    func autoAlignLyrics() {
+        guard let track = current, hasSyncedLyrics, alignState != .running else { return }
+        let lines = lyrics
+        alignState = .running
+        alignGuess = nil
+        alignTask?.cancel()
+        alignTask = Task { [weak self] in
+            // DSD 用和播放一样的虚拟 WAV（转成 PCM）来分析
+            var loader: DSDResourceLoader?
+            let asset: AVAsset
+            if track.isDSD, let file = DSDFile.read(url: track.url),
+               let decoder = DSDDecoder(url: track.url, file: file, mode: .pcm) {
+                loader = DSDResourceLoader(decoder: decoder)
+                asset = loader!.makeAsset()
+            } else {
+                asset = AVURLAsset(url: track.url)
+            }
+            let result = await Task.detached(priority: .userInitiated) {
+                await LyricAligner.align(asset: asset, lines: lines)
+            }.value
+            withExtendedLifetime(loader) {}
+            guard let self, !Task.isCancelled, self.current?.id == track.id else { return }
+            guard let result else {
+                self.alignState = .done("没找到足够的人声，未修改")
+                return
+            }
+            let offset = (-result.shift * 10).rounded() / 10
+            guard result.reliable else {
+                self.alignGuess = offset
+                self.alignState = .done("没把握，未修改（估计" + Self.offsetText(offset) + "）")
+                return
+            }
+            let before = self.lyricOffset
+            self.setLyricOffset(offset)
+            self.alignUndo = before == offset ? nil : before
+            self.alignState = .done(before == offset ? "已经是对齐的（" + Self.offsetText(offset) + "）"
+                                                     : "已对齐：" + Self.offsetText(offset))
+        }
+    }
+
+    /// 没把握时仍然使用估计值
+    func applyAlignGuess() {
+        guard let guess = alignGuess else { return }
+        alignUndo = lyricOffset
+        setLyricOffset(guess)
+        alignGuess = nil
+        alignState = .done("已使用估计：" + Self.offsetText(guess))
+    }
+
+    func undoAutoAlign() {
+        guard let undo = alignUndo else { return }
+        setLyricOffset(undo)
+        alignUndo = nil
+        alignState = .done("已撤销，恢复为" + Self.offsetText(undo))
+    }
+
+    private func resetAlignState() {
+        alignTask?.cancel()
+        alignTask = nil
+        alignState = .idle
+        alignUndo = nil
+        alignGuess = nil
+    }
+
+    /// 0.8 → "歌词提前 0.8s"，0 → "不偏移"
+    private static func offsetText(_ offset: Double) -> String {
+        if abs(offset) < 0.05 { return "不偏移" }
+        return String(format: "歌词%@ %.1fs", offset > 0 ? "提前" : "延后", abs(offset))
+    }
+
     private func setLyricOffset(_ value: Double) {
         guard let track = current else { return }
         let rounded = (value * 10).rounded() / 10   // 精确到 0.1 秒，避免浮点误差累积
@@ -423,6 +510,7 @@ final class PlayerController {
         lyrics = []
         lyricsSource = nil
         lyricOffset = Self.savedLyricOffset(for: track)
+        resetAlignState()
         lyricsState = .loading
         nowPlayingArtwork = nil
 
@@ -519,6 +607,7 @@ final class PlayerController {
 
     private func applyLyrics(_ text: String, source: LyricsSource) {
         let lines = LRCParser.parse(text)
+        if lines != lyrics { resetAlignState() }
         lyrics = lines
         lyricsSource = lines.isEmpty ? nil : source
         lyricsState = lines.isEmpty ? .notFound : .loaded
