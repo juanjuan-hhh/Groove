@@ -105,18 +105,9 @@ final class FloatingBall {
 
     /// 回到主窗口。一直显示悬浮球时球留着，否则收起来
     func exit() {
-        if Self.alwaysOn {
-            NSApp.activate(ignoringOtherApps: true)
-            if let window = mainWindow ?? NSApp.windows.first(where: { !($0 is NSPanel) && $0.canBecomeMain }) {
-                window.makeKeyAndOrderFront(nil)
-            } else {
-                (NSApp.delegate as? AppDelegate)?.showMainWindow()
-            }
-            return
-        }
-        hideBall()
-        NSApp.activate(ignoringOtherApps: true)
-        (mainWindow ?? NSApp.windows.first { !($0 is NSPanel) && $0.canBecomeMain })?.makeKeyAndOrderFront(nil)
+        if !Self.alwaysOn { hideBall() }
+        // 主窗口可能被「−」收进程序坞、被悬浮球模式藏起来、或者被关掉了，统一交给 AppDelegate 处理
+        AppDelegate.shared?.restoreMainWindow(preferred: mainWindow)
     }
 
     /// 悬浮球菜单里的「关闭悬浮球」：关掉「一直显示」，收起球，回到主窗口

@@ -72,6 +72,12 @@ struct LocalMusicApp: App {
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    /// SwiftUI 下 NSApp.delegate 是 SwiftUI 自己的代理对象，`NSApp.delegate as? AppDelegate` 永远是 nil，所以用这个
+    private(set) static weak var shared: AppDelegate?
+    override init() {
+        super.init()
+        Self.shared = self
+    }
     weak var player: PlayerController?
     private var keyMonitor: Any?
     private var titleBarMonitor: Any?
@@ -151,23 +157,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// 把主窗口叫出来：悬浮球模式 → 回主窗口；被「−」收进程序坞 → 放出来；藏起来了 → 显示；关掉了 → 新开一个
     func showMainWindow() {
+        // 悬浮球在（包括「一直显示悬浮球」）：交给悬浮球收尾，它会再调 restoreMainWindow
         if FloatingBall.shared.isShown {
             FloatingBall.shared.exit()
-            return
+        } else {
+            restoreMainWindow()
         }
+    }
+
+    /// 真正把主窗口放出来（不管悬浮球）。preferred：悬浮球模式收起来的那个窗口
+    func restoreMainWindow(preferred: NSWindow? = nil) {
         NSApp.activate(ignoringOtherApps: true)
         // 收起的窗口 canBecomeMain 是 false，所以单独找
         let windows = NSApp.windows.filter { !($0 is NSPanel) && ($0.canBecomeMain || $0.isMiniaturized) }
         if let minimized = windows.first(where: \.isMiniaturized) {
             minimized.deminiaturize(nil)
             minimized.makeKeyAndOrderFront(nil)
-        } else if let window = windows.first {
+        } else if let window = preferred ?? windows.first {
             window.makeKeyAndOrderFront(nil)
         } else {
             placeNextMainWindow = true
             openMainWindow?()
         }
-    }}
+    }
+}
 
 
 /// 记下 SwiftUI 的「打开窗口」动作，主窗口被关掉后点程序坞图标时用它新开一个
