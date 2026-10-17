@@ -77,6 +77,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // 按「外观」设置（默认深色，和 Porthole 一样）：菜单、弹窗、播放队列浮窗也跟着变
         NSApp.appearance = AppearanceMode.current.nsAppearance
         NSApp.activate(ignoringOtherApps: true)
+        // 主窗口出现在鼠标所在的屏幕上（启动时、主窗口关掉后重新打开时）
+        placeNextMainWindow = true
+        mainObserver = NotificationCenter.default.addObserver(forName: NSWindow.didBecomeMainNotification,
+                                                              object: nil, queue: .main) { [weak self] note in
+            guard let window = note.object as? NSWindow else { return }
+            MainActor.assumeIsolated { self?.mainWindowAppeared(window) }
+        }
 
         // 空格键播放/暂停（在搜索框里打字时不拦截）
         // 双击最上面的标题栏也是铺满 / 恢复，而不是系统默认的缩放
@@ -95,6 +102,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             MainActor.assumeIsolated { self?.player?.togglePlayPause() }
             return nil
         }
+    }
+
+    private var mainObserver: NSObjectProtocol?
+    /// 下一个出现的主窗口要挪到鼠标所在的屏幕
+    private var placeNextMainWindow = false
+
+    private func mainWindowAppeared(_ window: NSWindow) {
+        guard placeNextMainWindow, !(window is NSPanel) else { return }
+        placeNextMainWindow = false
+        let mouse = NSEvent.mouseLocation
+        guard let target = NSScreen.screens.first(where: { NSMouseInRect(mouse, $0.frame, false) }) else { return }
+        let visible = target.visibleFrame
+        var frame = window.frame
+        // 原来就在这块屏幕上：位置不动，只保证没有出界
+        let sameScreen = window.screen == target
+        frame.size.width = min(frame.width, visible.width)
+        frame.size.height = min(frame.height, visible.height)
+        if !sameScreen {
+            frame.origin = NSPoint(x: visible.midX - frame.width / 2, y: visible.midY - frame.height / 2)
+        }
+        frame.origin.x = min(max(frame.minX, visible.minX), visible.maxX - frame.width)
+        frame.origin.y = min(max(frame.minY, visible.minY), visible.maxY - frame.height)
+        if frame != window.frame { window.setFrame(frame, display: true) }
     }
 
     // 退出时把独占的输出设备还给系统、恢复原来的采样率
@@ -130,6 +160,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else if let window = windows.first {
             window.makeKeyAndOrderFront(nil)
         } else {
+            placeNextMainWindow = true
             openMainWindow?()
         }
     }}
