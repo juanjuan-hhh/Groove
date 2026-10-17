@@ -249,7 +249,10 @@ private struct OutputMenuItems: View {
             Text("跟随系统").tag("")
             ForEach(output.devices) { Text($0.name).tag($0.uid) }
         }
-        Toggle("独占输出（外接解码器用）", isOn: Binding(get: { output.enabled }, set: { output.setEnabled($0) }))
+        Toggle("独占输出（外接解码器用）", isOn: Binding(get: { output.enabled }, set: { on in
+            output.setEnabled(on)
+            if on { ExclusiveVolumeWarning.showIfNeeded() }
+        }))
         // 不独占时 DSD 一律转成 PCM（DoP 经过系统混音会变成噪音）
         Picker("DSD 输出方式", selection: Binding(get: { output.dsdMode }, set: { output.setDSDMode($0) })) {
             ForEach(DSDOutputMode.allCases) { Text($0.label).tag($0) }

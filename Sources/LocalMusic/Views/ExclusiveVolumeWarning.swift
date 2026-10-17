@@ -1,0 +1,84 @@
+import AppKit
+import SwiftUI
+
+/// 打开「独占输出」时在主窗口正中弹的小卡片：独占时 App 音量固定 100%，提醒先看一下设备音量。
+/// 勾了「不再提示」以后就不再弹
+@MainActor
+enum ExclusiveVolumeWarning {
+    static let dismissedKey = "exclusiveVolumeWarningDismissed"
+    private static var panel: NSPanel?
+
+    static func showIfNeeded() {
+        guard !UserDefaults.standard.bool(forKey: dismissedKey) else { return }
+        let panel = panel ?? makePanel()
+        self.panel = panel
+        let main = NSApp.windows.first { !($0 is NSPanel) && $0.isVisible && $0.canBecomeMain }
+        let area = main?.frame ?? NSScreen.main?.visibleFrame ?? .zero
+        panel.setFrameOrigin(NSPoint(x: area.midX - panel.frame.width / 2, y: area.midY - panel.frame.height / 2))
+        panel.orderFrontRegardless()
+    }
+
+    fileprivate static func close(dontShowAgain: Bool) {
+        if dontShowAgain { UserDefaults.standard.set(true, forKey: dismissedKey) }
+        panel?.orderOut(nil)
+    }
+
+    private static func makePanel() -> NSPanel {
+        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 320, height: 160),
+                            styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        panel.level = .floating
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        panel.hidesOnDeactivate = true
+        panel.isReleasedWhenClosed = false
+        let host = NSHostingView(rootView: WarningCard().modifier(ThemedAppearance()))
+        host.frame = NSRect(origin: .zero, size: host.fittingSize)
+        panel.setContentSize(host.fittingSize)
+        panel.contentView = host
+        return panel
+    }
+}
+
+private struct WarningCard: View {
+    @State private var dontShowAgain = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "speaker.wave.3.fill")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(Theme.accent)
+                    .frame(width: 38, height: 38)
+                    .background(Circle().fill(Theme.accent.opacity(0.15)))
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("开启独占后请注意设备音量！").font(.ui(15, .bold))
+                    Text("独占时 Groove 以 100% 音量直接输出，请先把解码器或耳机的音量调低。")
+                        .font(.ui(12)).foregroundStyle(Theme.text2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            HStack {
+                Toggle("不再提示", isOn: $dontShowAgain)
+                    .toggleStyle(.checkbox)
+                    .font(.ui(12, .semibold))
+                    .foregroundStyle(Theme.text2)
+                Spacer()
+                Button { ExclusiveVolumeWarning.close(dontShowAgain: dontShowAgain) } label: {
+                    ChipText(text: "知道了", color: Theme.accent, foreground: Theme.ink, font: .ui(12, .bold), hPad: 18, vPad: 6)
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 340)
+        .background {
+            RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous).fill(Theme.card)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous).stroke(Theme.line, lineWidth: 1)
+        }
+        .foregroundStyle(Theme.text)
+    }
+}
