@@ -8,40 +8,39 @@ import QuartzCore
 @MainActor
 enum ThemeReveal {
     private static let duration: CFTimeInterval = 0.6
-    private static weak var overlay: NSView?
+    private static weak var overlay: CALayer?
 
     /// 换外观的那一下包在这里面；toDark 是换完后是不是深色。窗口不在屏幕上就直接换，不做动画
     static func perform(toDark: Bool, _ change: () -> Void) {
-        overlay?.removeFromSuperview()
+        overlay?.removeFromSuperlayer()
         guard let window = mainWindow, window.isVisible, !window.isMiniaturized,
               window.occlusionState.contains(.visible),
-              let content = window.contentView, content.bounds.width > 0, content.bounds.height > 0,
-              let rep = content.bitmapImageRepForCachingDisplay(in: content.bounds) else {
+              let content = window.contentView,
+              // 盖在整个窗口的最外层（连红绿灯一起），不放进 SwiftUI 的视图里
+              let frameView = Optional(content.superview ?? content), let host = frameView.layer,
+              let snapshot = snapshot(of: window), snapshot.width > 1 else {
             change()
+            applyAppKitAppearance()
             return
         }
-        content.cacheDisplay(in: content.bounds, to: rep)
 
-        // 毛玻璃那部分拍不进截图（是透明的），截图下面垫一层旧外观的底色，免得新样子提前透出来
-        var oldBackground: CGColor?
-        window.effectiveAppearance.performAsCurrentDrawingAppearance {
-            oldBackground = NSColor(Theme.bg).cgColor
-        }
-
-        let cover = PassThroughView(frame: content.bounds)
-        cover.autoresizingMask = [.width, .height]
-        cover.wantsLayer = true
-        let layer = cover.layer!
-        layer.backgroundColor = oldBackground
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)   // 不要系统默认的淡入，一放上去就完全盖住
+        let layer = CALayer()
+        layer.frame = host.bounds
+        layer.zPosition = 10_000
         let image = CALayer()
         image.frame = layer.bounds
-        image.contents = rep.cgImage
+        image.contents = snapshot
         image.contentsGravity = .resize
         layer.addSublayer(image)
-        content.addSubview(cover, positioned: .above, relativeTo: nil)
-        overlay = cover
+        host.addSublayer(layer)
+        overlay = layer
+        CATransaction.commit()
 
         change()
+        // 菜单、毛玻璃这些 AppKit 部分也马上换（原来要等 SwiftUI 下一轮才换，正好撞上动画，会卡一下）
+        applyAppKitAppearance()
 
         // 遮罩：一个以窗口中心为圆心的径向渐变，透明的部分透出下面的新样子，
         // 圆的边上留一圈 2×feather 宽的渐变，黑白交界是柔和的而不是一条硬线。
@@ -68,12 +67,18 @@ enum ThemeReveal {
         mask.locations = steps[0]
         layer.mask = mask
 
-        // 等 SwiftUI 把新外观画好（下一轮再开始），圆再开始动
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) {
-            guard overlay === cover else { return }
+        DispatchQueue.main.async {
+            guard overlay === layer else { return }
+            // 先把新外观整个画完（被截图盖着看不见），再开始动画——重活不和动画抢同一段时间
+            frameView.layoutSubtreeIfNeeded()
+            window.displayIfNeeded()
+            CATransaction.flush()
             CATransaction.begin()
             CATransaction.setCompletionBlock {
-                cover.removeFromSuperview()
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                layer.removeFromSuperlayer()
+                CATransaction.commit()
             }
             let anim = CAKeyframeAnimation(keyPath: "locations")
             anim.values = steps
@@ -92,8 +97,21 @@ enum ThemeReveal {
             ?? NSApp.mainWindow.flatMap { $0 is NSPanel ? nil : $0 }
     }
 
-    /// 盖在上面的截图不挡鼠标
-    private final class PassThroughView: NSView {
-        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    /// 把窗口现在的样子拍成一张图（和屏幕上一模一样，包括透出来的壁纸）。
+    /// cacheDisplay、layer.render 都拍不到 SwiftUI 列表里的东西，只能找窗口服务器要。
+    /// CGWindowListCreateImage 在新 SDK 里标成了不能直接调，运行时还在，拍自己的窗口不用权限
+    private static func snapshot(of window: NSWindow) -> CGImage? {
+        typealias Capture = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
+        guard window.windowNumber > 0,
+              let handle = dlopen("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics", RTLD_LAZY),
+              let sym = dlsym(handle, "CGWindowListCreateImage") else { return nil }
+        let capture = unsafeBitCast(sym, to: Capture.self)
+        // .optionIncludingWindow = 8；.boundsIgnoreFraming = 1 | .bestResolution = 8
+        return capture(.null, 8, UInt32(window.windowNumber), 1 | 8)?.takeRetainedValue()
     }
+
+    private static func applyAppKitAppearance() {
+        NSApp.appearance = AppearanceMode.current.nsAppearance
+    }
+
 }
