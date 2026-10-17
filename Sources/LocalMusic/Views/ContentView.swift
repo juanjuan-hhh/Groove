@@ -24,11 +24,24 @@ struct ContentView: View {
             content.padding(.top, max(0, Self.titleBarHeight - geo.safeAreaInsets.top))
         }
         .foregroundStyle(Theme.text)
-        // 毛玻璃底透出一点壁纸，再盖一层半透明的底色
+        // 毛玻璃底透出一点壁纸，再盖一层半透明的底色；选了背景图时换成背景图（稍微模糊、压暗，文字照样看得清）
         .background {
             ZStack {
-                WindowGlass()
-                Theme.bg.opacity(0.72)
+                if let image = AppBackground.shared.image {
+                    Theme.bg
+                    GeometryReader { geo in
+                        Image(nsImage: image)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: geo.size.width, height: geo.size.height)
+                            .blur(radius: 6)
+                            .clipped()
+                    }
+                    Theme.bg.opacity(0.62)
+                } else {
+                    WindowGlass()
+                    Theme.bg.opacity(0.72)
+                }
             }
             .ignoresSafeArea()
         }
@@ -197,6 +210,11 @@ struct TopBar: View {
                 // 悬浮球的其他设置在悬浮球上点右键
                 Toggle("一直显示悬浮球", isOn: Binding(get: { ballAlwaysOn },
                                                     set: { FloatingBall.shared.setAlwaysOn($0, player: player) }))
+                Menu("背景图") {
+                    Button("选择图片…") { AppBackground.shared.choose() }
+                    Button("恢复默认（毛玻璃）") { AppBackground.shared.reset() }
+                        .disabled(AppBackground.shared.image == nil)
+                }
                 Picker("外观", selection: $appearance) {
                     ForEach(AppearanceMode.allCases) { Text($0.label).tag($0) }
                 }

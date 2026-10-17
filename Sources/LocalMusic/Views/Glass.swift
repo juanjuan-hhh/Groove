@@ -59,3 +59,37 @@ struct WindowGlass: NSViewRepresentable {
         }
     }
 }
+
+/// 主窗口的自定义背景图（设置菜单里选）。没选时用默认的毛玻璃
+@MainActor
+@Observable
+final class AppBackground {
+    static let shared = AppBackground()
+    private(set) var image: NSImage?
+    private static let file = AppPaths.support.appendingPathComponent("background-image")
+
+    private init() {
+        if let data = try? Data(contentsOf: Self.file) { image = Self.decode(data) }
+    }
+
+    /// 缩到不超过 3000 像素，大照片不占太多内存
+    private static func decode(_ data: Data) -> NSImage? {
+        guard let cg = ArtworkProvider.downsample(data, maxPixel: 3000) else { return nil }
+        return NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
+    }
+
+    func choose() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.image]
+        panel.message = "选一张图片当 Groove 主窗口的背景"
+        guard panel.runModal() == .OK, let url = panel.url,
+              let data = try? Data(contentsOf: url), let image = Self.decode(data) else { return }
+        try? data.write(to: Self.file, options: .atomic)
+        self.image = image
+    }
+
+    func reset() {
+        try? FileManager.default.removeItem(at: Self.file)
+        image = nil
+    }
+}
