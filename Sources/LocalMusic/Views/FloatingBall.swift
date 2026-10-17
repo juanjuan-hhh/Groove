@@ -825,7 +825,7 @@ private struct FloatingLyricView: View {
         let preview = ball.adjustingLyric && currentLine.isEmpty
         let line = preview ? "歌词胶囊大小预览" : currentLine
         let next = preview ? "下一句歌词" : nextLine
-        let visible = ball.adjustingLyric || (!line.isEmpty && (ball.tuckedEdge == nil || showWhenTucked)
+        let visible = ball.adjustingLyric || (!line.isEmpty && player.playedThisLaunch && (ball.tuckedEdge == nil || showWhenTucked)
             && mode != .off && (mode == .always || ball.hovering))
         // 文字靠球那一边对齐
         let align: HorizontalAlignment = ball.lyricOnLeft ? .trailing : .leading

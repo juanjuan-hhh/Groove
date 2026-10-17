@@ -43,7 +43,9 @@ enum LyricsState: Equatable {
 final class PlayerController {
     private(set) var queue: [Track] = [] { didSet { sessionDirty = true } }
     private(set) var index = 0 { didSet { sessionDirty = true } }
-    private(set) var isPlaying = false
+    private(set) var isPlaying = false { didSet { if isPlaying { playedThisLaunch = true } } }
+    /// 这次打开 App 以后放过歌没有（恢复上次那首、还没按播放时，悬浮球先不显示歌词）
+    private(set) var playedThisLaunch = false
     private(set) var currentTime: Double = 0 { didSet { refreshLyricIndex() } }
     private(set) var duration: Double = 0
     private(set) var shuffle = false { didSet { sessionDirty = true } }
