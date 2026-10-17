@@ -357,7 +357,7 @@ struct NowPlayingView: View {
 
     private func cover(in size: CGSize) -> some View {
         // 封面下面还有：进度环外扩 14×2、间距 30、当前歌词 48、间距 18、格式标签 26，上下再各留 12
-        let side = max(60, min(340, size.height - 212, size.width - 96))
+        let side = max(60, min(340, size.height - 200, size.width - 96))
         // 多出来的空间：封面上下各分一点，当前歌词和格式标签放在最下面，靠近下面的按钮和进度条
         return VStack(spacing: 18) {
             Spacer(minLength: 0)
@@ -368,6 +368,7 @@ struct NowPlayingView: View {
             Spacer(minLength: 12)
             CurrentLyricLine()
                 .onTapGesture { player.showLyrics = true }
+                .offset(y: -10)   // 只把歌词往上挪一点，格式标签不动
             // 格式信息：FLAC · 16bit · 44.1kHz
             // 点它打开「音频链路」
             if let track = player.current {
@@ -380,7 +381,7 @@ struct NowPlayingView: View {
                 .padding(.top, -20)
             }
         }
-        .padding(.bottom, 28)   // 和下面一排按钮隔开
+        .padding(.bottom, 16)   // 和下面一排按钮隔开
     }
 
     private var functionRow: some View {
