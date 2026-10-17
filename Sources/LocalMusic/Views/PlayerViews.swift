@@ -586,40 +586,46 @@ private struct ProgressSection: View {
         let duration = max(player.duration, 1)
         let time = dragTime ?? player.currentTime
         VStack(spacing: 8) {
-            // Porthole 的粗胶囊进度条，播放时有光带滑过；点击或拖动跳转
-            GeometryReader { geo in
-                let fraction = min(1, max(0, time / duration))
-                CapsuleBar(value: fraction, height: hovering || dragTime != nil ? 10 : 8,
-                           shimmer: player.isPlaying && dragTime == nil)
-                    .frame(maxHeight: .infinity)
-                    // 拖动时进度条头上冒出一个圆头小点
-                    .overlay(alignment: .leading) {
-                        Circle()
-                            .fill(Theme.cream)
-                            .overlay(Circle().stroke(Theme.accent, lineWidth: 3))
-                            .frame(width: 18, height: 18)
-                            .shadow(color: .black.opacity(0.35), radius: 4, y: 1)
-                            .scaleEffect(dragTime != nil ? 1 : 0.01)
-                            .opacity(dragTime != nil ? 1 : 0)
-                            .offset(x: geo.size.width * fraction - 9)
-                            .allowsHitTesting(false)
-                            .animation(.spring(response: 0.25, dampingFraction: 0.7), value: dragTime != nil)
-                    }
-                    .contentShape(Rectangle())
-                    .gesture(
-                        DragGesture(minimumDistance: 0)
-                            .onChanged { value in
-                                dragTime = min(1, max(0, value.location.x / geo.size.width)) * duration
-                            }
-                            .onEnded { _ in
-                                if let t = dragTime { player.seek(to: t) }
-                                dragTime = nil
-                            }
-                    )
+            // 进度条两头：快退 / 快进 10 秒
+            HStack(spacing: 10) {
+                SkipButton(seconds: -10)
+                // Porthole 的粗胶囊进度条，播放时有光带滑过；点击或拖动跳转
+                GeometryReader { geo in
+                    let fraction = min(1, max(0, time / duration))
+                    CapsuleBar(value: fraction, height: hovering || dragTime != nil ? 10 : 8,
+                               shimmer: player.isPlaying && dragTime == nil)
+                        .frame(maxHeight: .infinity)
+                        // 拖动时进度条头上冒出一个圆头小点
+                        .overlay(alignment: .leading) {
+                            Circle()
+                                .fill(Theme.cream)
+                                .overlay(Circle().stroke(Theme.accent, lineWidth: 3))
+                                .frame(width: 18, height: 18)
+                                .shadow(color: .black.opacity(0.35), radius: 4, y: 1)
+                                .scaleEffect(dragTime != nil ? 1 : 0.01)
+                                .opacity(dragTime != nil ? 1 : 0)
+                                .offset(x: geo.size.width * fraction - 9)
+                                .allowsHitTesting(false)
+                                .animation(.spring(response: 0.25, dampingFraction: 0.7), value: dragTime != nil)
+                        }
+                        .contentShape(Rectangle())
+                        .gesture(
+                            DragGesture(minimumDistance: 0)
+                                .onChanged { value in
+                                    dragTime = min(1, max(0, value.location.x / geo.size.width)) * duration
+                                }
+                                .onEnded { _ in
+                                    if let t = dragTime { player.seek(to: t) }
+                                    dragTime = nil
+                                }
+                        )
+                }
+                .frame(height: 18)
+                .onHover { hovering = $0 }
+                .animation(.easeOut(duration: 0.12), value: hovering)
+                SkipButton(seconds: 10)
             }
-            .frame(height: 18)
-            .onHover { hovering = $0 }
-            .animation(.easeOut(duration: 0.12), value: hovering)
+            // 时间对齐到进度条两头（让开两边的按钮）
             HStack {
                 Text(formatTime(time))
                 Spacer()
@@ -627,7 +633,30 @@ private struct ProgressSection: View {
             }
             .font(.ui(12, .semibold).monospacedDigit())
             .foregroundStyle(Theme.text2)
+            .padding(.horizontal, SkipButton.width + 10)
         }
+    }
+}
+
+/// 进度条两头的快退 / 快进 10 秒
+private struct SkipButton: View {
+    let seconds: Double
+    static let width: CGFloat = 26
+    @Environment(PlayerController.self) private var player
+    @State private var hovering = false
+
+    var body: some View {
+        Button { player.skip(by: seconds) } label: {
+            Image(systemName: seconds < 0 ? "gobackward.10" : "goforward.10")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(hovering ? Theme.text : Theme.text2)
+                .frame(width: Self.width, height: 26)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .help(seconds < 0 ? "快退 10 秒" : "快进 10 秒")
+        .disabled(player.current == nil)
     }
 }
 
