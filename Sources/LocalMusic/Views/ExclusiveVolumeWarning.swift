@@ -30,7 +30,7 @@ enum ExclusiveVolumeWarning {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
-        panel.hidesOnDeactivate = true
+        panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
         let host = NSHostingView(rootView: WarningCard().modifier(ThemedAppearance()))
         host.frame = NSRect(origin: .zero, size: host.fittingSize)
@@ -65,6 +65,81 @@ private struct WarningCard: View {
                     .foregroundStyle(Theme.text2)
                 Spacer()
                 Button { ExclusiveVolumeWarning.close(dontShowAgain: dontShowAgain) } label: {
+                    ChipText(text: "知道了", color: Theme.accent, foreground: Theme.ink, font: .ui(12, .bold), hPad: 18, vPad: 6)
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 340)
+        .background {
+            RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous).fill(Theme.card)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous).stroke(Theme.line, lineWidth: 1)
+        }
+        .foregroundStyle(Theme.text)
+    }
+}
+
+/// 主窗口正中的一张简单提示卡片：标题（+ 可选的一行说明）+ 「知道了」（和独占提示卡片一个样子）
+@MainActor
+enum InfoCard {
+    private static var panel: NSPanel?
+
+    static func show(icon: String, title: String, message: String? = nil) {
+        panel?.orderOut(nil)
+        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 340, height: 140),
+                            styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        panel.level = .floating
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        panel.hidesOnDeactivate = false
+        panel.isReleasedWhenClosed = false
+        let host = NSHostingView(rootView: InfoCardView(icon: icon, title: title, message: message)
+            .modifier(ThemedAppearance()))
+        host.frame = NSRect(origin: .zero, size: host.fittingSize)
+        panel.setContentSize(host.fittingSize)
+        panel.contentView = host
+        self.panel = panel
+        let main = NSApp.windows.first { !($0 is NSPanel) && $0.isVisible && $0.canBecomeMain }
+        let area = main?.frame ?? NSScreen.main?.visibleFrame ?? .zero
+        panel.setFrameOrigin(NSPoint(x: area.midX - panel.frame.width / 2, y: area.midY - panel.frame.height / 2))
+        panel.orderFrontRegardless()
+    }
+
+    fileprivate static func close() {
+        panel?.orderOut(nil)
+    }
+}
+
+private struct InfoCardView: View {
+    let icon: String
+    let title: String
+    let message: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(alignment: message == nil ? .center : .top, spacing: 12) {
+                Image(systemName: icon)
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(Theme.accent)
+                    .frame(width: 38, height: 38)
+                    .background(Circle().fill(Theme.accent.opacity(0.15)))
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(title).font(.ui(15, .bold))
+                    if let message {
+                        Text(message)
+                            .font(.ui(12)).foregroundStyle(Theme.text2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+            HStack {
+                Spacer()
+                Button { InfoCard.close() } label: {
                     ChipText(text: "知道了", color: Theme.accent, foreground: Theme.ink, font: .ui(12, .bold), hPad: 18, vPad: 6)
                 }
                 .buttonStyle(.plain)

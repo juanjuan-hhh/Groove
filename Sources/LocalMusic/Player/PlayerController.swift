@@ -679,7 +679,12 @@ final class PlayerController {
         panel.message = "选一个歌词文件（.lrc 或 .txt）给「\(track.title)」"
         guard panel.runModal() == .OK, let url = panel.url,
               let data = try? Data(contentsOf: url), let text = LyricsProvider.decode(data), !text.isBlank else { return }
-        applyManualLyrics(text.replacingOccurrences(of: "\u{FEFF}", with: ""), for: track)
+        let clean = text.replacingOccurrences(of: "\u{FEFF}", with: "")
+        applyManualLyrics(clean, for: track)
+        // 没有时间轴的歌词照样导入（静态显示），提示一下怎么才能同步
+        if LRCParser.parse(clean).first?.time == nil {
+            InfoCard.show(icon: "text.alignleft", title: "此歌词无时间轴，仅支持静态显示")
+        }
     }
 
     /// 删除 App 下载/选择的歌词（不动音乐文件），然后按顺序重新找本地的
