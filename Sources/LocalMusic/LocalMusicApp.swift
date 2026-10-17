@@ -15,7 +15,11 @@ struct LocalMusicApp: App {
                 .frame(minWidth: 720, minHeight: 560)
                 .modifier(ThemedAppearance())
                 .tint(Theme.accent)
-                .onAppear { appDelegate.player = player }
+                .onAppear {
+                    appDelegate.player = player
+                    // 「一直显示悬浮球」：打开 App 时就放出来
+                    if FloatingBall.alwaysOn { FloatingBall.shared.show(player: player) }
+                }
                 .background(OpenWindowCapture(delegate: appDelegate))
         }
         .defaultSize(width: 980, height: 740)

@@ -119,8 +119,7 @@ struct TopBar: View {
     @AppStorage(AppSettings.autoFetchKey) private var autoFetch = true
     @AppStorage(AppearanceMode.key) private var appearance: AppearanceMode = .dark
     @AppStorage(SpinningArtwork.enabledKey) private var spinCover = true
-    @AppStorage(FloatingLyricsMode.key) private var floatingLyrics: FloatingLyricsMode = .always
-    @AppStorage(FloatingLyricsMode.whenTuckedKey) private var lyricsWhenTucked = false
+    @AppStorage(FloatingBall.alwaysKey) private var ballAlwaysOn = false
 
     var body: some View {
         HStack(spacing: 14) {
@@ -195,12 +194,9 @@ struct TopBar: View {
                 Divider()
                 Toggle("自动联网获取缺少的封面和歌词", isOn: $autoFetch)
                 Toggle("播放时旋转封面", isOn: $spinCover)
-                Button("悬浮球大小…") { FloatingBall.shared.showSizeAdjuster(player: player) }
-                Picker("悬浮球歌词", selection: $floatingLyrics) {
-                    ForEach(FloatingLyricsMode.allCases) { Text($0.label).tag($0) }
-                }
-                Toggle("贴边时也显示歌词", isOn: $lyricsWhenTucked)
-                    .disabled(floatingLyrics == .off)
+                // 悬浮球的其他设置在悬浮球上点右键
+                Toggle("一直显示悬浮球", isOn: Binding(get: { ballAlwaysOn },
+                                                    set: { FloatingBall.shared.setAlwaysOn($0, player: player) }))
                 Picker("外观", selection: $appearance) {
                     ForEach(AppearanceMode.allCases) { Text($0.label).tag($0) }
                 }

@@ -23,8 +23,24 @@ final class FloatingBall {
     private(set) var ballSize: CGFloat = FloatingBall.size
     /// 球的大小相对默认的比例，歌词条按它一起缩放
     private(set) var scale: CGFloat = FloatingBall.size / FloatingBall.defaultSize
-    /// 正在设置里调大小：不贴边藏起来
+    /// 正在调大小：不贴边藏起来
     @ObservationIgnored private var adjustingSize = false
+    /// 正在调歌词胶囊大小：没歌词时也显示一条示例，方便看大小
+    private(set) var adjustingLyric = false
+
+    /// 「一直显示悬浮球」：主窗口开着时悬浮球也在
+    static let alwaysKey = "floatingBallAlways"
+    static var alwaysOn: Bool { UserDefaults.standard.bool(forKey: alwaysKey) }
+
+    /// 歌词胶囊相对默认的大小（0.7 = 70%），字号、留白、最大宽度一起缩放
+    static let lyricSizeKey = "floatingLyricSize"
+    static let lyricSizeRange: ClosedRange<CGFloat> = 0.7...1.6
+    static var lyricSize: CGFloat {
+        let saved = UserDefaults.standard.double(forKey: lyricSizeKey)
+        return saved > 0 ? min(lyricSizeRange.upperBound, max(lyricSizeRange.lowerBound, saved)) : 1
+    }
+    /// 歌词胶囊实际的缩放：跟着球的大小，再乘上自己的大小
+    private(set) var lyricScale: CGFloat = FloatingBall.size / FloatingBall.defaultSize * FloatingBall.lyricSize
     private static let originKey = "floatingBallOrigin"
 
     /// 鼠标是否在球上（用 AppKit 的跟踪区域检测，Groove 不在前台时也有效）
@@ -39,31 +55,77 @@ final class FloatingBall {
 
     var isShown: Bool { panel?.isVisible ?? false }
 
-    func toggle(player: PlayerController) {
-        isShown ? exit() : enter(player: player)
+    /// 主窗口被悬浮球模式收起来了
+    private var mainHidden: Bool {
+        !NSApp.windows.contains { $0.isVisible && !($0 is NSPanel) && $0.canBecomeMain }
     }
 
+    func toggle(player: PlayerController) {
+        (isShown && mainHidden) ? exit() : enter(player: player)
+    }
+
+    /// 切到悬浮球模式：放出悬浮球，收起主窗口
     func enter(player: PlayerController) {
+        if let window = NSApp.windows.first(where: { $0.isVisible && !($0 is NSPanel) && $0.canBecomeMain }) {
+            mainWindow = window
+        }
+        show(player: player)
+        mainWindow?.orderOut(nil)
+    }
+
+    /// 「一直显示悬浮球」开关
+    func setAlwaysOn(_ on: Bool, player: PlayerController) {
+        UserDefaults.standard.set(on, forKey: Self.alwaysKey)
+        if on {
+            show(player: player)
+        } else if isShown && !mainHidden {
+            hideBall()
+        }
+    }
+
+    /// 只放出悬浮球（不动主窗口）
+    func show(player: PlayerController) {
         guard !isShown else { return }
-        mainWindow = NSApp.windows.first { $0.isVisible && !($0 is NSPanel) && $0.canBecomeMain }
         let panel = self.panel ?? makePanel(player: player)
         self.panel = panel
         panel.setFrameOrigin(savedOrigin())
         panel.orderFrontRegardless()
         panel.invalidateShadow()
         attachLyricPanel(player: player)
-        mainWindow?.orderOut(nil)
         tucked = false
         tuckedEdge = nil   // 一出来是完整的球（转动的封面），等藏进去时才换成半圆的样子
         ballSize = Self.size
         scale = Self.size / Self.defaultSize
+        lyricScale = scale * Self.lyricSize
         panel.setContentSize(NSSize(width: Self.size, height: Self.size))
         updateDock(for: panel.frame)
         scheduleTuck(after: 1.5)
         installMouseMonitor()
     }
 
+    /// 回到主窗口。一直显示悬浮球时球留着，否则收起来
     func exit() {
+        if Self.alwaysOn {
+            NSApp.activate(ignoringOtherApps: true)
+            if let window = mainWindow ?? NSApp.windows.first(where: { !($0 is NSPanel) && $0.canBecomeMain }) {
+                window.makeKeyAndOrderFront(nil)
+            } else {
+                (NSApp.delegate as? AppDelegate)?.showMainWindow()
+            }
+            return
+        }
+        hideBall()
+        NSApp.activate(ignoringOtherApps: true)
+        (mainWindow ?? NSApp.windows.first { !($0 is NSPanel) && $0.canBecomeMain })?.makeKeyAndOrderFront(nil)
+    }
+
+    /// 悬浮球菜单里的「关闭悬浮球」：关掉「一直显示」，收起球，回到主窗口
+    func close() {
+        UserDefaults.standard.set(false, forKey: Self.alwaysKey)
+        exit()
+    }
+
+    private func hideBall() {
         guard let panel, panel.isVisible else { return }
         cancelTuck()
         removeMouseMonitor()
@@ -76,8 +138,6 @@ final class FloatingBall {
             lyricPanel.orderOut(nil)
         }
         panel.orderOut(nil)
-        NSApp.activate(ignoringOtherApps: true)
-        (mainWindow ?? NSApp.windows.first { !($0 is NSPanel) && $0.canBecomeMain })?.makeKeyAndOrderFront(nil)
     }
 
     // MARK: 拖动
@@ -284,21 +344,21 @@ final class FloatingBall {
     /// 打开调大小窗口之前悬浮球是不是已经开着（关掉窗口时恢复）
     @ObservationIgnored private var shownBeforeAdjusting = false
 
-    /// 打开调大小的小窗口，同时把悬浮球放出来，边拖滑块边看
-    func showSizeAdjuster(player: PlayerController) {
-        if let sizePanel, sizePanel.isVisible {
-            sizePanel.orderFrontRegardless()
-            return
-        }
-        shownBeforeAdjusting = isShown
+    enum Adjust { case ball, lyric }
+
+    /// 打开调大小的小窗口（悬浮球 / 歌词胶囊），同时把悬浮球放出来，边拖滑块边看
+    func showSizeAdjuster(player: PlayerController, _ kind: Adjust = .ball) {
+        if let sizePanel, sizePanel.isVisible { sizePanel.orderOut(nil) }
+        if !adjustingSize { shownBeforeAdjusting = isShown }
         adjustingSize = true
+        adjustingLyric = kind == .lyric
         cancelTuck()
         if isShown {
             if tucked { slide(to: shownFrame, tucked: false) }
         } else {
             enter(player: player)
         }
-        let window = sizePanel ?? makeSizePanel()
+        let window = makeSizePanel(kind)
         sizePanel = window
         if let screen = (panel?.screen ?? NSScreen.main)?.visibleFrame {
             window.setFrameOrigin(NSPoint(x: screen.midX - window.frame.width / 2, y: screen.midY - window.frame.height / 2))
@@ -311,6 +371,7 @@ final class FloatingBall {
     fileprivate func closeSizeAdjuster() {
         sizePanel?.orderOut(nil)
         adjustingSize = false
+        adjustingLyric = false
         if shownBeforeAdjusting {
             scheduleTuck(after: 1.5)
         } else {
@@ -323,6 +384,7 @@ final class FloatingBall {
         let size = min(Self.sizeRange.upperBound, max(Self.sizeRange.lowerBound, value.rounded()))
         UserDefaults.standard.set(Double(size), forKey: Self.sizeKey)
         scale = size / Self.defaultSize
+        lyricScale = scale * Self.lyricSize
         guard let panel, panel.isVisible, !tucked else {
             ballSize = size
             return
@@ -338,8 +400,16 @@ final class FloatingBall {
         UserDefaults.standard.set(NSStringFromPoint(frame.origin), forKey: Self.originKey)
     }
 
+    /// 改歌词胶囊大小：记下来，胶囊马上跟着变
+    func setLyricSize(_ value: CGFloat) {
+        let v = min(Self.lyricSizeRange.upperBound, max(Self.lyricSizeRange.lowerBound, value))
+        UserDefaults.standard.set(Double(v), forKey: Self.lyricSizeKey)
+        lyricScale = scale * v
+        if let panel { positionLyricPanel(for: tucked ? (shownFrame ?? panel.frame) : panel.frame) }
+    }
+
     /// 无边框的小卡片（和 App 里其他卡片一样的配色），不抢焦点
-    private func makeSizePanel() -> NSPanel {
+    private func makeSizePanel(_ kind: Adjust) -> NSPanel {
         let window = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 320, height: 130),
                              styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         window.level = .floating
@@ -349,8 +419,20 @@ final class FloatingBall {
         window.hasShadow = true
         window.hidesOnDeactivate = false
         window.isReleasedWhenClosed = false
-        let host = ClickThroughHostingView(rootView: FloatingBallSizeView { FloatingBall.shared.closeSizeAdjuster() }
-            .modifier(ThemedAppearance()))
+        let card: FloatingBallSizeView
+        switch kind {
+        case .ball:
+            card = FloatingBallSizeView(title: "悬浮球大小", range: Self.sizeRange, defaultValue: Self.defaultSize,
+                                        initial: Self.size, label: { "\(Int($0))" },
+                                        apply: { FloatingBall.shared.setSize($0) },
+                                        done: { FloatingBall.shared.closeSizeAdjuster() })
+        case .lyric:
+            card = FloatingBallSizeView(title: "歌词胶囊大小", range: Self.lyricSizeRange, defaultValue: 1,
+                                        initial: Self.lyricSize, label: { "\(Int(($0 * 100).rounded()))%" },
+                                        apply: { FloatingBall.shared.setLyricSize($0) },
+                                        done: { FloatingBall.shared.closeSizeAdjuster() })
+        }
+        let host = ClickThroughHostingView(rootView: card.modifier(ThemedAppearance()))
         window.contentView = host
         window.setContentSize(host.fittingSize)
         return window
@@ -358,9 +440,9 @@ final class FloatingBall {
 
     // MARK: 歌词条
 
-    static var lyricWidth: CGFloat { 320 * size / defaultSize }
-    static var lyricHeight: CGFloat { (36 * size / defaultSize).rounded() }
-    private static var lyricGap: CGFloat { 8 * size / defaultSize }
+    var lyricWidth: CGFloat { 320 * lyricScale }
+    var lyricHeight: CGFloat { (36 * lyricScale).rounded() }
+    private var lyricGap: CGFloat { 8 * scale }
 
     private func attachLyricPanel(player: PlayerController) {
         guard let panel else { return }
@@ -381,15 +463,15 @@ final class FloatingBall {
         guard let lyricPanel else { return }
         let onLeft = lyricSide(for: ball)
         if onLeft != lyricOnLeft { lyricOnLeft = onLeft }
-        let x = onLeft ? ball.minX - Self.lyricGap - Self.lyricWidth : ball.maxX + Self.lyricGap
+        let x = onLeft ? ball.minX - lyricGap - lyricWidth : ball.maxX + lyricGap
         // 上下和完整的球对齐（藏起一半时歌词条本来就不显示）
         let midY = tucked ? (shownFrame?.midY ?? ball.midY) : ball.midY
-        lyricPanel.setFrame(NSRect(x: x, y: midY - Self.lyricHeight / 2, width: Self.lyricWidth, height: Self.lyricHeight),
+        lyricPanel.setFrame(NSRect(x: x, y: midY - lyricHeight / 2, width: lyricWidth, height: lyricHeight),
                             display: false)
     }
 
     private func makeLyricPanel(player: PlayerController) -> NSPanel {
-        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: Self.lyricWidth, height: Self.lyricHeight),
+        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: lyricWidth, height: lyricHeight),
                             styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.level = .floating
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
@@ -400,7 +482,7 @@ final class FloatingBall {
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
         let host = NSHostingView(rootView: FloatingLyricView().environment(player).modifier(ThemedAppearance()))
-        host.frame = NSRect(x: 0, y: 0, width: Self.lyricWidth, height: Self.lyricHeight)
+        host.frame = NSRect(x: 0, y: 0, width: lyricWidth, height: lyricHeight)
         host.autoresizingMask = [.width, .height]
         panel.contentView = host
         return panel
@@ -465,6 +547,9 @@ private final class FirstClickHostingView<Content: View>: NSHostingView<Content>
 
 struct FloatingBallView: View {
     @Environment(PlayerController.self) private var player
+    @AppStorage(FloatingLyricsMode.key) private var lyricsMode: FloatingLyricsMode = .always
+    @AppStorage(FloatingLyricsMode.whenTuckedKey) private var lyricsWhenTucked = false
+    @AppStorage(FloatingBall.alwaysKey) private var alwaysOn = false
     private var hovering: Bool { FloatingBall.shared.hovering }
 
     /// 藏起一半时变小
@@ -533,16 +618,28 @@ struct FloatingBallView: View {
         .contentShape(Circle())
         // 拖动在 FloatingBall 里按鼠标事件处理；双击回主窗口
         .onTapGesture(count: 2) { FloatingBall.shared.exit() }
+        // 右键：悬浮球自己的菜单（播放控制 + 悬浮球的所有设置）
         .contextMenu {
+            Button("打开主窗口") { FloatingBall.shared.exit() }
+            Divider()
             if let track = player.current {
                 Text("\(track.title) — \(track.artist)")
-                Divider()
             }
             Button(player.isPlaying ? "暂停" : "播放") { player.togglePlayPause() }
             Button("上一首") { player.previous() }
             Button("下一首") { player.next() }
             Divider()
-            Button("返回主窗口") { FloatingBall.shared.exit() }
+            Button("悬浮球大小…") { FloatingBall.shared.showSizeAdjuster(player: player, .ball) }
+            Button("歌词胶囊大小…") { FloatingBall.shared.showSizeAdjuster(player: player, .lyric) }
+            Picker("悬浮球歌词", selection: $lyricsMode) {
+                ForEach(FloatingLyricsMode.allCases) { Text($0.label).tag($0) }
+            }
+            Toggle("贴边时也显示歌词", isOn: $lyricsWhenTucked)
+                .disabled(lyricsMode == .off)
+            Toggle("一直显示悬浮球", isOn: Binding(get: { alwaysOn },
+                                                set: { FloatingBall.shared.setAlwaysOn($0, player: player) }))
+            Divider()
+            Button("关闭悬浮球") { FloatingBall.shared.close() }
         }
         .help(player.current.map { "\($0.title) — \($0.artist)\n双击回到主窗口" } ?? "双击回到主窗口")
     }
@@ -676,12 +773,13 @@ private struct FloatingLyricView: View {
 
     var body: some View {
         let ball = FloatingBall.shared
-        let line = currentLine
-        let visible = !line.isEmpty && (ball.tuckedEdge == nil || showWhenTucked)
-            && mode != .off && (mode == .always || ball.hovering)
+        // 调胶囊大小时没歌词也显示一条示例
+        let line = currentLine.isEmpty && ball.adjustingLyric ? "歌词胶囊大小预览" : currentLine
+        let visible = ball.adjustingLyric || (!line.isEmpty && (ball.tuckedEdge == nil || showWhenTucked)
+            && mode != .off && (mode == .always || ball.hovering))
         ZStack {
             Text(line)
-                .font(.ui(14 * ball.scale, .semibold))
+                .font(.ui(14 * ball.lyricScale, .semibold))
                 .foregroundStyle(Theme.text)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -689,12 +787,12 @@ private struct FloatingLyricView: View {
                 .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity),
                                         removal: .move(edge: .top).combined(with: .opacity)))
         }
-        .padding(.horizontal, 16 * ball.scale)
-        .frame(height: (36 * ball.scale).rounded())
+        .padding(.horizontal, 16 * ball.lyricScale)
+        .frame(height: (36 * ball.lyricScale).rounded())
         .clipped()
         .background {
             ZStack {
-                GlassBackground(cornerRadius: 18 * ball.scale)
+                GlassBackground(cornerRadius: 18 * ball.lyricScale)
                 Capsule().fill(Theme.card.opacity(0.35))
             }
         }
@@ -716,18 +814,33 @@ private struct FloatingLyricView: View {
 
 /// 「悬浮球大小」卡片：粗胶囊滑条 + 赭橙进度，滑块一动，悬浮球和歌词条马上跟着变
 private struct FloatingBallSizeView: View {
+    let title: String
+    let range: ClosedRange<CGFloat>
+    let defaultValue: CGFloat
+    let label: (CGFloat) -> String
+    let apply: (CGFloat) -> Void
     let done: () -> Void
-    @State private var value = FloatingBall.size
+    @State private var value: CGFloat
 
-    private let range = FloatingBall.sizeRange
+    init(title: String, range: ClosedRange<CGFloat>, defaultValue: CGFloat, initial: CGFloat,
+         label: @escaping (CGFloat) -> String, apply: @escaping (CGFloat) -> Void, done: @escaping () -> Void) {
+        self.title = title
+        self.range = range
+        self.defaultValue = defaultValue
+        self.label = label
+        self.apply = apply
+        self.done = done
+        _value = State(initialValue: initial)
+    }
+
     private let knob: CGFloat = 18
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Text("悬浮球大小").font(.ui(14, .bold)).foregroundStyle(Theme.text)
+                Text(title).font(.ui(14, .bold)).foregroundStyle(Theme.text)
                 Spacer()
-                ChipText(text: "\(Int(value))", color: Theme.surface, foreground: Theme.text, font: .ui(12, .bold).monospacedDigit())
+                ChipText(text: label(value), color: Theme.surface, foreground: Theme.text, font: .ui(12, .bold).monospacedDigit())
             }
             HStack(spacing: 10) {
                 Image(systemName: "circle").font(.system(size: 9, weight: .bold)).foregroundStyle(Theme.text2)
@@ -735,13 +848,13 @@ private struct FloatingBallSizeView: View {
                 Image(systemName: "circle").font(.system(size: 16, weight: .bold)).foregroundStyle(Theme.text2)
             }
             HStack {
-                Button { set(FloatingBall.defaultSize) } label: {
+                Button { set(defaultValue) } label: {
                     ChipText(text: "恢复默认", color: Theme.surface, foreground: Theme.text, font: .ui(12, .semibold),
                              hPad: 14, vPad: 6)
                 }
                 .buttonStyle(.plain)
-                .disabled(value == FloatingBall.defaultSize)
-                .opacity(value == FloatingBall.defaultSize ? 0.45 : 1)
+                .disabled(value == defaultValue)
+                .opacity(value == defaultValue ? 0.45 : 1)
                 Spacer()
                 Button(action: done) {
                     ChipText(text: "完成", color: Theme.accent, foreground: Theme.ink, font: .ui(12, .bold), hPad: 18, vPad: 6)
@@ -783,8 +896,9 @@ private struct FloatingBallSizeView: View {
     }
 
     private func set(_ new: CGFloat) {
-        value = new.rounded()
-        FloatingBall.shared.setSize(value)
+        // 悬浮球按整数像素，歌词胶囊按 5% 一档
+        value = range.upperBound > 10 ? new.rounded() : (new * 20).rounded() / 20
+        apply(value)
     }
 }
 
