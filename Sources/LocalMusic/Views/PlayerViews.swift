@@ -158,13 +158,16 @@ private struct MiniProgressLine: View {
                     .frame(height: active ? 4 : 2)
                     // 悬停 / 拖动时线头冒出一个小圆点
                     .overlay(alignment: .leading) {
+                        // 拖动时圆点再大一圈，换成和正在播放页一样的奶白底 + 橙圈
+                        let dragging = dragTime != nil
                         Circle()
-                            .fill(Theme.accent)
-                            .frame(width: 10, height: 10)
+                            .fill(dragging ? Theme.cream : Theme.accent)
+                            .overlay(Circle().stroke(Theme.accent, lineWidth: dragging ? 2.5 : 0))
+                            .frame(width: dragging ? 12 : 10, height: dragging ? 12 : 10)
                             .shadow(color: .black.opacity(0.3), radius: 2, y: 1)
                             .scaleEffect(active ? 1 : 0.01)
                             .opacity(active ? 1 : 0)
-                            .offset(x: geo.size.width * fraction - 5)
+                            .offset(x: geo.size.width * fraction - (dragging ? 6 : 5))
                             .allowsHitTesting(false)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -191,6 +194,7 @@ private struct MiniProgressLine: View {
                 }
                 .help(enabled ? "点击或拖动跳转" : "")
                 .animation(.easeOut(duration: 0.12), value: active)
+                .animation(.spring(response: 0.25, dampingFraction: 0.7), value: dragTime != nil)
             }
             .zIndex(1)
     }
