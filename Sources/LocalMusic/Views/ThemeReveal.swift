@@ -4,6 +4,7 @@ import QuartzCore
 /// 切换深色 / 浅色时主窗口的过渡：先把旧样子拍下来盖在最上面，再换外观。
 /// 换成浅色：新样子像一个圆从窗口正中间扩散出来，直到铺满（在旧截图上挖一个越来越大的圆洞）；
 /// 换成深色反过来：深色从四周往中间包围回来（旧截图只留中间一个越来越小的圆）。
+/// 圆的边是柔和渐变的，不是一条硬线。
 @MainActor
 enum ThemeReveal {
     private static let duration: CFTimeInterval = 0.6
@@ -42,23 +43,29 @@ enum ThemeReveal {
 
         change()
 
-        // 遮罩：换浅色是整块矩形 + 中间一个圆（奇偶填充，圆里透明，圆越来越大）；
-        // 换深色只留中间一个圆（圆外透明，圆越来越小）
+        // 遮罩：一个以窗口中心为圆心的径向渐变，透明的部分透出下面的新样子，
+        // 圆的边上留一圈 2×feather 宽的渐变，黑白交界是柔和的而不是一条硬线。
+        // 换浅色：圆里透明、圆外留旧截图，圆越来越大；换深色反过来，圆里留旧截图、圆越来越小。
+        // 动的是渐变的 locations：边从中心的一个点长出来，再以固定宽度一直走到超出窗口四角
+        // （换深色反过来，最后收成一个点），开头结尾都不会突然冒出或剩下一团雾
         let bounds = layer.bounds
-        let center = CGPoint(x: bounds.midX, y: bounds.midY)
+        let feather: CGFloat = 28
         let fullRadius = hypot(bounds.width, bounds.height) / 2 + 2
-        func path(_ r: CGFloat) -> CGPath {
-            let p = CGMutablePath()
-            if !toDark { p.addRect(bounds) }
-            p.addEllipse(in: CGRect(x: center.x - r, y: center.y - r, width: r * 2, height: r * 2))
-            return p
-        }
-        let startPath = path(toDark ? fullRadius : 0)
-        let endPath = path(toDark ? 0 : fullRadius)
-        let mask = CAShapeLayer()
+        let outer = fullRadius + feather * 2
+        let edge = feather * 2 / outer
+        let small: [NSNumber] = [0, NSNumber(value: Double(edge))]
+        let large: [NSNumber] = [NSNumber(value: Double(fullRadius / outer)), 1]
+        let point: [NSNumber] = [0, 0]
+        let steps = toDark ? [large, small, point] : [point, small, large]
+        let times: [NSNumber] = toDark ? [0, NSNumber(value: Double(1 - edge)), 1] : [0, NSNumber(value: Double(edge)), 1]
+        let mask = CAGradientLayer()
+        mask.type = .radial
         mask.frame = bounds
-        mask.fillRule = .evenOdd
-        mask.path = startPath
+        mask.startPoint = CGPoint(x: 0.5, y: 0.5)
+        mask.endPoint = CGPoint(x: 0.5 + outer / bounds.width, y: 0.5 + outer / bounds.height)
+        let clear = CGColor(gray: 0, alpha: 0), solid = CGColor(gray: 0, alpha: 1)
+        mask.colors = toDark ? [solid, clear] : [clear, solid]
+        mask.locations = steps[0]
         layer.mask = mask
 
         // 等 SwiftUI 把新外观画好（下一轮再开始），圆再开始动
@@ -68,12 +75,12 @@ enum ThemeReveal {
             CATransaction.setCompletionBlock {
                 cover.removeFromSuperview()
             }
-            let anim = CABasicAnimation(keyPath: "path")
-            anim.fromValue = startPath
-            anim.toValue = endPath
+            let anim = CAKeyframeAnimation(keyPath: "locations")
+            anim.values = steps
+            anim.keyTimes = times
             anim.duration = duration
             anim.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            mask.path = endPath
+            mask.locations = steps[2]
             mask.add(anim, forKey: "reveal")
             CATransaction.commit()
         }
