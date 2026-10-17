@@ -109,6 +109,7 @@ final class FloatingBall {
         let panel = self.panel ?? makePanel(player: player)
         self.panel = panel
         panel.setFrameOrigin(savedOrigin())
+        panel.hasShadow = true
         panel.orderFrontRegardless()
         panel.invalidateShadow()
         attachLyricPanel(player: player)
@@ -216,6 +217,7 @@ final class FloatingBall {
             ballSize = Self.size
         }
         dragStart = (press, panel.frame.origin)
+        panel.hasShadow = true
         cancelTuck()
         dock = nil
         tucked = false
@@ -320,6 +322,8 @@ final class FloatingBall {
     private func slide(to frame: NSRect?, tucked: Bool) {
         guard let panel, let frame else { return }
         self.tucked = tucked
+        // 藏起一半时底是半透明的，窗口阴影会从底下透出来变成一块灰，所以先关掉阴影
+        panel.hasShadow = !tucked
         withAnimation(.easeInOut(duration: 0.22)) {
             tuckedEdge = tucked ? dock : nil
             ballSize = frame.width
@@ -734,9 +738,12 @@ struct FloatingBallView: View {
         let provider = ArtworkProvider.shared
         ZStack {
             // 半透明玻璃底，透出一点封面的颜色（没封面时用很淡的底色），让进度环看得清
-            GlassBackground(cornerRadius: size / 2)
+            // 半透明玻璃底；贴边藏起一半时不用系统玻璃（它不能调透明度），换成更透明的底色，进度环、音柱不变
             if FloatingBall.shared.tuckedEdge != nil {
-                Circle().fill(coverTint.map { $0.opacity(0.55) } ?? Theme.card.opacity(0.35)).allowsHitTesting(false)
+                Circle().fill(Theme.card.opacity(0.06)).allowsHitTesting(false)
+                Circle().fill(coverTint.map { $0.opacity(0.16) } ?? Theme.card.opacity(0.08)).allowsHitTesting(false)
+            } else {
+                GlassBackground(cornerRadius: size / 2)
             }
             // 封面铺满整个球，进度环直接画在封面外圈上
             if FloatingBall.shared.tuckedEdge == nil {
