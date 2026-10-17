@@ -377,7 +377,7 @@ struct NowPlayingView: View {
                 }
                 .buttonStyle(.plain)
                 .help("查看音频链路")
-                .padding(.top, -6)
+                .padding(.top, -20)
             }
         }
         .padding(.bottom, 16)   // 和下面一排按钮隔开
