@@ -28,6 +28,10 @@ final class FloatingBall {
     /// 正在调歌词胶囊大小：没歌词时也显示一条示例，方便看大小
     private(set) var adjustingLyric = false
 
+    /// 「自动贴边」：拖到屏幕边上会吸过去、停一会儿藏起一半（默认开）
+    static let autoDockKey = "floatingBallAutoDock"
+    static var autoDock: Bool { UserDefaults.standard.object(forKey: autoDockKey) as? Bool ?? true }
+
     /// 「一直显示悬浮球」：主窗口开着时悬浮球也在
     static let alwaysKey = "floatingBallAlways"
     static var alwaysOn: Bool { UserDefaults.standard.bool(forKey: alwaysKey) }
@@ -80,6 +84,22 @@ final class FloatingBall {
             show(player: player)
         } else if isShown && !mainHidden {
             hideBall()
+        }
+    }
+
+    /// 「自动贴边」开关：关掉时藏着一半的球先露出来
+    func setAutoDock(_ on: Bool) {
+        UserDefaults.standard.set(on, forKey: Self.autoDockKey)
+        guard let panel, panel.isVisible else { return }
+        cancelTuck()
+        let frame = tucked ? (shownFrame ?? panel.frame) : panel.frame
+        if tucked { slide(to: frame, tucked: false) }
+        updateDock(for: frame)
+        if on {
+            let target = snapped(frame, on: panel.screen ?? NSScreen.main)
+            if target != frame { panel.setFrame(target, display: true); positionLyricPanel(for: target) }
+            updateDock(for: target)
+            if !hovering { scheduleTuck(after: 0.8) }
         }
     }
 
@@ -259,6 +279,7 @@ final class FloatingBall {
         shownFrame = frame
         guard let screen = panel?.screen ?? NSScreen.main else { return }
         let lo = screen.visibleFrame.insetBy(dx: Self.edgeGap, dy: Self.edgeGap)
+        guard Self.autoDock else { return }
         let mid = frame.midY
         func neighbor(atX x: CGFloat) -> Bool {
             NSScreen.screens.contains { $0 != screen && $0.frame.contains(NSPoint(x: x, y: mid)) }
@@ -322,6 +343,12 @@ final class FloatingBall {
         guard let area = screen?.visibleFrame else { return frame }
         var f = frame
         let lo = area.insetBy(dx: Self.edgeGap, dy: Self.edgeGap)
+        // 不自动贴边：只保证不出屏幕
+        guard Self.autoDock else {
+            f.origin.x = min(max(f.minX, area.minX), area.maxX - f.width)
+            f.origin.y = min(max(f.minY, area.minY), area.maxY - f.height)
+            return f
+        }
         if f.minX - lo.minX < Self.snapDistance { f.origin.x = lo.minX }
         if lo.maxX - f.maxX < Self.snapDistance { f.origin.x = lo.maxX - f.width }
         if f.minY - lo.minY < Self.snapDistance { f.origin.y = lo.minY }
@@ -470,6 +497,9 @@ final class FloatingBall {
         let whenTucked = UserDefaults.standard.bool(forKey: FloatingLyricsMode.whenTuckedKey)
         menu.addItem(item("贴边时也显示歌词", checked: whenTucked, enabled: mode != .off) {
             UserDefaults.standard.set(!whenTucked, forKey: FloatingLyricsMode.whenTuckedKey)
+        })
+        menu.addItem(item("自动贴边", checked: Self.autoDock) {
+            FloatingBall.shared.setAutoDock(!FloatingBall.autoDock)
         })
         menu.addItem(item("一直显示悬浮球", checked: Self.alwaysOn) {
             FloatingBall.shared.setAlwaysOn(!FloatingBall.alwaysOn, player: player)
