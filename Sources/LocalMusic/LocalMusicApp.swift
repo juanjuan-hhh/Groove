@@ -26,6 +26,8 @@ struct LocalMusicApp: App {
             CommandGroup(after: .windowArrangement) {
                 Button("Groove 主窗口") { appDelegate.showMainWindow() }
                     .keyboardShortcut("0")
+                Button("音频链路") { SignalPathWindow.shared.show(player: player) }
+                    .keyboardShortcut("i", modifiers: [.command, .option])
             }
             CommandGroup(replacing: .newItem) {
                 Button("添加音乐文件夹…") { library.addFolder() }

@@ -204,8 +204,6 @@ struct NowPlayingView: View {
     @Environment(LibraryStore.self) private var library
     @State private var showQueue = false
     @State private var showQueueFromBottom = false
-    @State private var showSignalPath = false
-    @State private var showOutputPath = false
 
     var body: some View {
         GeometryReader { geo in
@@ -298,13 +296,12 @@ struct NowPlayingView: View {
                     if let track = player.current { QualityBadge(track: track) }
                     // 独占输出时显示设备实际的采样率，确认没有被重采样
                     if let rate = ExclusiveOutput.shared.outputRate {
-                        Button { showOutputPath.toggle() } label: {
+                        Button { SignalPathWindow.shared.show(player: player) } label: {
                             ChipText(text: "输出 " + Self.khz(rate), color: Theme.surface, foreground: Theme.text,
                                      font: .ui(10, .bold), hPad: 7, vPad: 2)
                         }
                         .buttonStyle(.plain)
                         .help("独占输出中，声卡现在的采样率。点击查看音频链路")
-                        .popover(isPresented: $showOutputPath, arrowEdge: .bottom) { SignalPathView().environment(player) }
                     }
                     Text(player.current?.artist ?? "")
                         .font(.ui(13))
@@ -371,13 +368,12 @@ struct NowPlayingView: View {
             // 格式信息：FLAC · 16bit · 44.1kHz
             // 点它打开「音频链路」
             if let track = player.current {
-                Button { showSignalPath.toggle() } label: {
+                Button { SignalPathWindow.shared.show(player: player) } label: {
                     ChipText(text: track.formatDescription, color: Theme.surface, foreground: Theme.text2,
                              font: .ui(12, .bold).monospacedDigit(), hPad: 12, vPad: 5)
                 }
                 .buttonStyle(.plain)
                 .help("查看音频链路")
-                .popover(isPresented: $showSignalPath, arrowEdge: .bottom) { SignalPathView().environment(player) }
                 .padding(.top, -12)
             }
         }
