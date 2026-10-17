@@ -257,11 +257,11 @@ struct NowPlayingView: View {
                                 .padding(.top, 20)   // 和上面的歌名、歌手隔开一点
                                 functionRow.padding(.bottom, 14)
                             }
-                            .transition(.opacity)
+                            .transition(.opacity.combined(with: .scale(scale: 0.88)))
                         }
                     }
                     .frame(maxHeight: .infinity)
-                    .animation(.spring(response: 0.45, dampingFraction: 0.9), value: player.showLyrics)
+                    .animation(.spring(response: 0.42, dampingFraction: 0.9), value: player.showLyrics)
                     ProgressSection()
                     controls.padding(.vertical, 14)
                     upNext.padding(.bottom, 18)
@@ -270,14 +270,6 @@ struct NowPlayingView: View {
                 .frame(maxWidth: 640)
                 .frame(maxWidth: .infinity)
             }
-            // 只有一张封面，画在最上面：封面页时放在封面的空位上，歌词页时移到左边露出右半张（像唱片），
-            // 两种位置之间连续地移过去、缩放，和歌词切换一起动
-            .overlayPreferenceValue(CoverSlotKey.self) { slot in
-                GeometryReader { proxy in
-                    floatingCover(slot: slot.map { proxy[$0] }, in: proxy.size)
-                }
-            }
-            .animation(.spring(response: 0.45, dampingFraction: 0.9), value: player.showLyrics)
         }
         .foregroundStyle(Theme.text)
         // 右上角：打开 / 关闭悬浮球（和主窗口顶栏最右边那个一样）
@@ -395,49 +387,16 @@ struct NowPlayingView: View {
         }
     }
 
-    /// 画封面用的固定大小，位置、大小的变化都用缩放来做（缩放能平滑地动起来，改 size 不行）
-    private static let coverBase: CGFloat = 400
-
-    @ViewBuilder
-    private func floatingCover(slot: CGRect?, in size: CGSize) -> some View {
-        let side = sideCoverSize(in: size)
-        // 歌词页：左边、上下居中，露右半张；窗口太窄放不下时在原位淡掉
-        let lyricsRect = side.map { CGRect(x: -$0 / 2, y: size.height / 2 - $0 / 2, width: $0, height: $0) }
-        let target = player.showLyrics ? (lyricsRect ?? slot) : slot
-        let visible = player.showLyrics ? lyricsRect != nil : slot != nil
-        if let target {
-            let scale = target.width / Self.coverBase
-            SpinningArtwork(track: player.current, size: Self.coverBase)
-                // 进度环按缩放反算粗细，缩放后看起来一样粗
-                .overlay { ProgressRing(width: 6 / max(scale, 0.01), gap: 14 / max(scale, 0.01)) }
-                .contentShape(Circle())
-                .onTapGesture { player.showLyrics.toggle() }
-                .help(player.showLyrics ? "回到封面" : "显示歌词")
-                .scaleEffect(scale)
-                .shadow(color: .black.opacity(player.showLyrics ? 0 : 0.5), radius: 24, y: 10)
-                .opacity(visible ? (player.showLyrics ? 0.65 : 1) : 0)
-                .position(x: target.midX, y: target.midY)
-                .allowsHitTesting(visible)
-        }
-    }
-
-    /// 歌词页左边那半张封面的直径：大约窗口高的 72%，但右半边不能压到中间的歌词（歌词最宽 640）；太小就不显示
-    private func sideCoverSize(in size: CGSize) -> CGFloat? {
-        let lyricsLeft = (size.width - 640) / 2
-        let side = min(size.height * 0.72, (lyricsLeft - 24) * 2)
-        return side >= 180 ? side : nil
-    }
-
     private func cover(in size: CGSize) -> some View {
         // 封面下面还有：进度环外扩 14×2、间距 30、当前歌词 48、间距 18、格式标签 26，上下再各留 12
         let side = max(60, min(340, size.height - 200, size.width - 96))
         // 多出来的空间：封面上下各分一点，当前歌词和格式标签放在最下面，靠近下面的按钮和进度条
         return VStack(spacing: 18) {
             Spacer(minLength: 0)
-            // 封面的空位：真正的封面由 floatingCover 画在这里（这样切到歌词页时它能整张移过去）
-            Color.clear
-                .frame(width: side, height: side)
-                .anchorPreference(key: CoverSlotKey.self, value: .bounds) { $0 }
+            SpinningArtwork(track: player.current, size: side)
+                .overlay { ProgressRing() }
+                .shadow(color: .black.opacity(0.5), radius: 24, y: 10)
+                .onTapGesture { player.showLyrics = true }
             Spacer(minLength: 12)
             CurrentLyricLine()
                 .onTapGesture { player.showLyrics = true }
@@ -529,19 +488,9 @@ struct NowPlayingView: View {
 }
 
 /// 圆形封面外的一圈进度环（Porthole 表盘的圆环）
-/// 封面页上封面空位的位置（交给最上面那张会移动的封面）
-private struct CoverSlotKey: PreferenceKey {
-    static var defaultValue: Anchor<CGRect>?
-    static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) {
-        value = nextValue() ?? value
-    }
-}
-
 private struct ProgressRing: View {
     @Environment(PlayerController.self) private var player
-    var width: CGFloat = 6
-    /// 进度环在封面外面多远
-    var gap: CGFloat = 14
+    private let width: CGFloat = 6
 
     var body: some View {
         let fraction = player.duration > 0 ? min(1, player.currentTime / player.duration) : 0
@@ -552,7 +501,7 @@ private struct ProgressRing: View {
                 .stroke(Theme.accent, style: StrokeStyle(lineWidth: width, lineCap: .round))
                 .rotationEffect(.degrees(-90))
         }
-        .padding(-gap)
+        .padding(-14)
         .allowsHitTesting(false)
     }
 }
