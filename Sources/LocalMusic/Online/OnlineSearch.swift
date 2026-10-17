@@ -3,6 +3,7 @@ import Foundation
 /// 「联网搜索」面板里的一条结果
 struct OnlineCandidate: Identifiable, Sendable {
     enum Source: String, Sendable {
+        case lrclib = "LRCLIB"
         case kugou = "酷狗"
         case qq = "QQ 音乐"
         case netease = "网易云"
@@ -15,7 +16,7 @@ struct OnlineCandidate: Identifiable, Sendable {
         case kugouID(String, String) // 酷狗歌词的 id + accesskey
         case qqMid(String)           // QQ 音乐的 songmid，用到时再下载歌词
         case neteaseID(Int)          // 网易云的歌曲 id，用到时再下载歌词
-        case text(String)            // 直接给了歌词文本
+        case text(String)            // 直接给了歌词文本（LRCLIB）
     }
 
     let id = UUID()
@@ -26,7 +27,7 @@ struct OnlineCandidate: Identifiable, Sendable {
     var duration: Double?
     var coverURL: URL?
     var lyrics: LyricsRef?
-    /// 是否带时间轴（酷狗的要下载后才知道，所以一般是 nil）
+    /// 是否带时间轴（只有 LRCLIB 能事先知道；酷狗等要下载后才知道，所以是 nil）
     var synced: Bool?
 }
 
@@ -36,8 +37,19 @@ enum SourceResult: Sendable {
     case failed(String)
 }
 
-/// 「联网搜索」：同时查 酷狗、QQ 音乐、网易云、iTunes，列出所有候选让用户自己选
+/// 「联网搜索」：同时查 LRCLIB、酷狗、QQ 音乐、网易云、iTunes，列出所有候选让用户自己选
 enum OnlineSearch {
+    static func lrclib(_ query: String) async -> SourceResult {
+        guard let items = await OnlineMedia.lrclibSearch(query: query) else { return .failed("连接失败") }
+        return .ok(items.prefix(15).compactMap { item in
+            let synced = nonBlank(item.syncedLyrics)
+            guard let title = item.trackName, let text = synced ?? nonBlank(item.plainLyrics) else { return nil }
+            return OnlineCandidate(source: .lrclib, title: title, artist: item.artistName ?? "",
+                                   album: nonBlank(item.albumName), duration: item.duration,
+                                   lyrics: .text(text), synced: synced != nil)
+        })
+    }
+
     static func netease(_ query: String) async -> SourceResult {
         guard let songs = await OnlineMedia.neteaseSearch(query, count: 12) else { return .failed("连接失败") }
         return .ok(songs.map { song in

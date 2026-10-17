@@ -19,7 +19,7 @@ struct OnlineSearchView: View {
         case empty
     }
 
-    private static let sources: [OnlineCandidate.Source] = [.kugou, .qq, .netease, .itunes]
+    private static let sources: [OnlineCandidate.Source] = [.lrclib, .kugou, .qq, .netease, .itunes]
 
     /// 点了某个来源的胶囊：只显示这个来源的结果（再点一下显示全部）
     @State private var filter: OnlineCandidate.Source?
@@ -307,11 +307,12 @@ struct OnlineSearchView: View {
         let id = searchID
         expanded = nil
         for source in Self.sources { states[source] = .loading }
-        // 三个来源同时查，哪个先回来先显示；一个失败不影响其他
+        // 几个来源同时查，哪个先回来先显示；一个失败不影响其他
         for source in Self.sources {
             Task {
                 let result: SourceResult
                 switch source {
+                case .lrclib: result = await OnlineSearch.lrclib(q)
                 case .kugou: result = await OnlineSearch.kugou(q)
                 case .qq: result = await OnlineSearch.qq(q)
                 case .netease: result = await OnlineSearch.netease(q)
@@ -389,6 +390,7 @@ struct OnlineSearchView: View {
 
     private func sourceColor(_ source: OnlineCandidate.Source) -> Color {
         switch source {
+        case .lrclib: return Theme.sage
         case .kugou: return Theme.slate
         case .qq: return Theme.teal
         case .netease: return Theme.terra

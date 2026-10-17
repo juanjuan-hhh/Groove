@@ -140,10 +140,16 @@ enum OnlineMedia {
 
     // MARK: 网络
 
+    /// LRCLIB 要求带上能说明是谁的 User-Agent
+    static let userAgent: String = {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.1"
+        return "Groove/\(version) (https://github.com/juanjuan-hhh/Groove)"
+    }()
+
     private static let session: URLSession = {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 12
-        config.httpAdditionalHeaders = ["User-Agent": "LocalMusic/0.1 (macOS personal music player)"]
+        config.httpAdditionalHeaders = ["User-Agent": userAgent]
         return URLSession(configuration: config)
     }()
 
@@ -242,8 +248,9 @@ enum OnlineMedia {
     // MARK: 歌词
 
     static func fetchLyrics(for track: Track) async -> String? {
-        // 先酷狗，找不到再 QQ 音乐，再网易云（LRCLIB 在国内一直连不上，已经去掉）
-        var result = await kugouLyrics(track)
+        // 先 LRCLIB（只认对得上、带时间轴的），再酷狗，找不到再 QQ 音乐，再网易云
+        var result = await lrclibLyrics(track)
+        if result == nil { result = await kugouLyrics(track) }
         if result == nil { result = await qqLyrics(track) }
         if result == nil { result = await neteaseLyrics(track) }
 
@@ -251,6 +258,76 @@ enum OnlineMedia {
             try? result.write(to: lyricsFile(track), atomically: true, encoding: .utf8)
         }
         return result
+    }
+
+    // MARK: LRCLIB（https://lrclib.net，公开免费，不用 key；国内有时连不上，失败就跳过）
+
+    struct LRCLibItem: Decodable, Sendable {
+        let trackName: String?
+        let artistName: String?
+        let albumName: String?
+        let duration: Double?   // 秒
+        let instrumental: Bool?
+        let plainLyrics: String?
+        let syncedLyrics: String?
+    }
+
+    private static let lrclibTimeout: TimeInterval = 6
+
+    /// /api/search：q 是关键词；也可以按 track_name + artist_name 搜。失败返回 nil
+    static func lrclibSearch(query: String? = nil, title: String? = nil, artist: String? = nil) async -> [LRCLibItem]? {
+        var comps = URLComponents(string: "https://lrclib.net/api/search")!
+        var items: [URLQueryItem] = []
+        if let query { items.append(URLQueryItem(name: "q", value: query)) }
+        if let title { items.append(URLQueryItem(name: "track_name", value: title)) }
+        if let artist { items.append(URLQueryItem(name: "artist_name", value: artist)) }
+        comps.queryItems = items
+        guard let url = comps.url, let data = try? await lrclibData(url) else { return nil }
+        return try? JSONDecoder().decode([LRCLibItem].self, from: data)
+    }
+
+    private static func lrclibData(_ url: URL) async throws -> Data {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = lrclibTimeout
+        let (data, response) = try await session.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode
+        if status == 404 { throw URLError(.fileDoesNotExist) }
+        guard status == 200 else { throw URLError(.badServerResponse) }
+        return data
+    }
+
+    /// 自动找歌词：LRCLIB 中文歌收得少，所以要求很严——歌名、歌手对得上，时长差 3 秒以内，而且带时间轴；
+    /// 不然就不要，交给后面的酷狗 / QQ / 网易云
+    private static func lrclibLyrics(_ track: Track) async -> String? {
+        guard track.hasKnownArtist, track.duration > 0, !normalize(track.title).isEmpty else { return nil }
+        // 先精确查（歌名 + 歌手 + 专辑 + 时长）
+        var comps = URLComponents(string: "https://lrclib.net/api/get")!
+        var query = [
+            URLQueryItem(name: "track_name", value: track.title),
+            URLQueryItem(name: "artist_name", value: track.artist),
+            URLQueryItem(name: "duration", value: String(Int(track.duration.rounded()))),
+        ]
+        if track.hasKnownAlbum, !track.album.isBlank { query.append(URLQueryItem(name: "album_name", value: track.album)) }
+        comps.queryItems = query
+        do {
+            if let url = comps.url {
+                let item = try JSONDecoder().decode(LRCLibItem.self, from: try await lrclibData(url))
+                if lrclibMatches(item, track), let text = nonEmpty(item.syncedLyrics) { return text }
+            }
+        } catch let error as URLError where error.code != .fileDoesNotExist {
+            return nil   // 连不上就别再试搜索了
+        } catch {}
+        // 精确查不到（专辑名、时长写法不一样）：按歌名 + 歌手搜，再挑时长对得上的
+        guard let items = await lrclibSearch(title: track.title, artist: track.artist) else { return nil }
+        return items.first { lrclibMatches($0, track) && nonEmpty($0.syncedLyrics) != nil }?.syncedLyrics
+    }
+
+    private static func lrclibMatches(_ item: LRCLibItem, _ track: Track) -> Bool {
+        guard item.instrumental != true, let d = item.duration, abs(d - track.duration) <= 3 else { return false }
+        let wantTitle = normalize(track.title), title = normalize(item.trackName ?? "")
+        let wantArtist = normalize(track.artist), artist = normalize(item.artistName ?? "")
+        guard !title.isEmpty, title == wantTitle || title.contains(wantTitle) || wantTitle.contains(title) else { return false }
+        return !artist.isEmpty && (artist.contains(wantArtist) || wantArtist.contains(artist))
     }
 
     // MARK: QQ 音乐（和酷狗一样是客户端内部接口，任何失败都直接跳过）
