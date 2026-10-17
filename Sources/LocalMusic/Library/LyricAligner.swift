@@ -23,6 +23,8 @@ enum LyricAligner {
     }
 
     static let searchRange = 15.0
+    /// 「在唱」概率越过中间值的时刻比耳朵听到人声进来要晚一点：Juan 实听两首都慢了约 0.2 秒，统一往前补
+    static let perceptualLead = 0.2
     static let sampleRate = 16_000.0
     static let fps = 100.0
 
@@ -212,7 +214,7 @@ enum LyricAligner {
         let sorted = support.sorted()
         let median = sorted[sorted.count / 2]
         let close = support.filter { abs($0 - median) <= 0.25 }
-        let shift = close.reduce(0, +) / Double(close.count)
+        let shift = close.reduce(0, +) / Double(close.count) - perceptualLead
 
         // 可信：整体覆盖够好、明显比别的位置好；至少两个进歌点互相印证（只有一个时要求更明显）
         let margin = top.contrast - rival
