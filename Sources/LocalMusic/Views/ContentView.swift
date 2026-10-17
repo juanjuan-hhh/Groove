@@ -328,14 +328,10 @@ private struct ExpandFromBar: ViewModifier, Animatable {
     func body(content: Content) -> some View {
         let p = CGFloat(max(0, min(1, progress)))
         content
-            // 内容比外框晚一点显出来，先看到「播放条变大」，再看到里面的封面和歌词
-            .opacity(Double(max(0, (p - 0.25) / 0.75)))
+            // 页面本身跟着外框一起长大 / 缩小（不另外垫一层底色，那层底色在浅色外观下就是一块白），
+            // 只在最后快缩成播放条时才淡掉
+            .opacity(Double(min(1, p * 3)))
             .scaleEffect(0.94 + 0.06 * p, anchor: .bottom)
-            .background {
-                // 外框先跟着长：和底部播放条完全一样的底色（用了自定义背景时是半透明的），收起时不会闪一块白
-                (AppBackground.shared.image == nil ? Theme.card : Theme.card.opacity(0.3))
-                    .opacity(Double(1 - p))
-            }
             .mask {
                 GeometryReader { geo in
                     let h = barHeight + (geo.size.height - barHeight) * p
