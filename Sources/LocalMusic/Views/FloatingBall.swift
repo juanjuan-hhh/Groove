@@ -37,6 +37,17 @@ final class FloatingBall {
     static var onTop: Bool { UserDefaults.standard.object(forKey: onTopKey) as? Bool ?? true }
     static var windowLevel: NSWindow.Level { onTop ? .statusBar : .normal }
 
+    /// 「根据壁纸选颜色」：贴边时按壁纸深浅选黑 / 白（默认关）。关着时只读系统自带壁纸（不用权限），
+    /// 自己的图片放在桌面、文稿等文件夹里一读 macOS 就会弹权限框，所以不读，按 Groove 的外观选
+    static let wallpaperColorKey = "floatingBallWallpaperColor"
+    static var wallpaperColor: Bool { UserDefaults.standard.bool(forKey: wallpaperColorKey) }
+
+    func setWallpaperColor(_ on: Bool) {
+        UserDefaults.standard.set(on, forKey: Self.wallpaperColorKey)
+        Self.wallpaperCache = nil
+        if tucked, let frame = panel?.frame { updateBackdrop(for: frame) }
+    }
+
     func setOnTop(_ on: Bool) {
         UserDefaults.standard.set(on, forKey: Self.onTopKey)
         for window in [panel, lyricPanel, queuePanel].compactMap({ $0 }) { window.level = Self.windowLevel }
@@ -537,6 +548,9 @@ final class FloatingBall {
         menu.addItem(item("自动贴边", checked: Self.autoDock) {
             FloatingBall.shared.setAutoDock(!FloatingBall.autoDock)
         })
+        menu.addItem(item("根据壁纸选颜色", checked: Self.wallpaperColor) {
+            FloatingBall.shared.setWallpaperColor(!FloatingBall.wallpaperColor)
+        })
         menu.addItem(item("一直显示悬浮球", checked: Self.alwaysOn) {
             FloatingBall.shared.setAlwaysOn(!FloatingBall.alwaysOn, player: player)
         })
@@ -564,16 +578,25 @@ final class FloatingBall {
         }
     }
 
-    /// 缩小的壁纸（按文件缓存），算亮度用
-    @ObservationIgnored private static var wallpaperCache: (url: URL, image: CGImage)?
+    /// 缩小的壁纸（按文件缓存），算亮度用；image 为 nil 表示这张读不了或不该读，换壁纸 / 改开关前不再试
+    @ObservationIgnored private static var wallpaperCache: (url: URL, image: CGImage?)?
+
+    /// 系统自带壁纸放的地方，读它们不用权限
+    private static let systemWallpaperDirs = ["/System/Library/Desktop Pictures/", "/Library/Desktop Pictures/"]
 
     private static func wallpaperBrightness(behind frame: NSRect, on screen: NSScreen) -> Double? {
         guard let url = NSWorkspace.shared.desktopImageURL(for: screen) else { return nil }
         let image: CGImage
         if let cached = wallpaperCache, cached.url == url {
-            image = cached.image
+            guard let cachedImage = cached.image else { return nil }
+            image = cachedImage
         } else {
-            guard let data = try? Data(contentsOf: url), let small = ArtworkProvider.downsample(data, maxPixel: 256) else { return nil }
+            let path = url.standardizedFileURL.path
+            let allowed = wallpaperColor || systemWallpaperDirs.contains { path.hasPrefix($0) }
+            guard allowed, let data = try? Data(contentsOf: url), let small = ArtworkProvider.downsample(data, maxPixel: 256) else {
+                wallpaperCache = (url, nil)
+                return nil
+            }
             wallpaperCache = (url, small)
             image = small
         }
