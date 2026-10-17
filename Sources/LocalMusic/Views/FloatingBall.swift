@@ -37,7 +37,7 @@ final class FloatingBall {
     static var onTop: Bool { UserDefaults.standard.object(forKey: onTopKey) as? Bool ?? true }
     static var windowLevel: NSWindow.Level { onTop ? .statusBar : .normal }
 
-    /// 「根据壁纸选颜色」：贴边时按壁纸深浅选黑 / 白（默认关）。关着时只读系统自带壁纸（不用权限），
+    /// 「系统壁纸取色」：贴边时按壁纸深浅选黑 / 白（默认关）。关着时只读系统自带壁纸（不用权限），
     /// 自己的图片放在桌面、文稿等文件夹里一读 macOS 就会弹权限框，所以不读，按 Groove 的外观选
     static let wallpaperColorKey = "floatingBallWallpaperColor"
     static var wallpaperColor: Bool { UserDefaults.standard.bool(forKey: wallpaperColorKey) }
@@ -548,7 +548,7 @@ final class FloatingBall {
         menu.addItem(item("自动贴边", checked: Self.autoDock) {
             FloatingBall.shared.setAutoDock(!FloatingBall.autoDock)
         })
-        menu.addItem(item("根据壁纸选颜色", checked: Self.wallpaperColor) {
+        menu.addItem(item("系统壁纸取色", checked: Self.wallpaperColor) {
             FloatingBall.shared.setWallpaperColor(!FloatingBall.wallpaperColor)
         })
         menu.addItem(item("一直显示悬浮球", checked: Self.alwaysOn) {
