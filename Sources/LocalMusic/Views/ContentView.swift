@@ -86,11 +86,12 @@ struct ContentView: View {
 
             if player.showNowPlaying && player.current != nil {
                 NowPlayingView()
-                    .transition(.move(edge: .bottom))
+                    // 从底部播放条「长」出来：露出来的范围从播放条那么高、圆角，一路撑满整个窗口；收起时反过来
+                    .transition(.modifier(active: ExpandFromBar(progress: 0), identity: ExpandFromBar(progress: 1)))
                     .zIndex(1)
             }
         }
-        .animation(.spring(response: 0.34, dampingFraction: 0.92), value: player.showNowPlaying)
+        .animation(.spring(response: 0.45, dampingFraction: 0.9), value: player.showNowPlaying)
         // 搜索框是 AppKit 输入框，被正在播放页盖住后鼠标经过还是会变成输入光标（I 形）。
         // 滑入动画结束后把它换成一样的静态文字，收起时马上换回来。
         .onChange(of: player.showNowPlaying) { _, showing in
@@ -310,5 +311,38 @@ struct EmptyLibraryView: View {
             .buttonStyle(.plain)
         }
         .padding(40)
+    }
+}
+
+/// 正在播放页展开 / 收起的过渡：progress 0 = 只有底部播放条那么大，1 = 整个窗口
+private struct ExpandFromBar: ViewModifier, Animatable {
+    var progress: Double
+    var animatableData: Double {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    /// 底部播放条大概的高度
+    private let barHeight: CGFloat = 72
+
+    func body(content: Content) -> some View {
+        let p = CGFloat(max(0, min(1, progress)))
+        content
+            // 内容比外框晚一点显出来，先看到「播放条变大」，再看到里面的封面和歌词
+            .opacity(Double(max(0, (p - 0.25) / 0.75)))
+            .scaleEffect(0.94 + 0.06 * p, anchor: .bottom)
+            .background {
+                // 外框先跟着长：和播放条一样的底色
+                Theme.card.opacity(Double(1 - p))
+            }
+            .mask {
+                GeometryReader { geo in
+                    let h = barHeight + (geo.size.height - barHeight) * p
+                    RoundedRectangle(cornerRadius: Theme.cardRadius * (1 - p), style: .continuous)
+                        .frame(width: geo.size.width, height: h)
+                        .frame(maxHeight: .infinity, alignment: .bottom)
+                }
+                .ignoresSafeArea()
+            }
     }
 }
