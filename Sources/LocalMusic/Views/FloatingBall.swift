@@ -438,10 +438,69 @@ final class FloatingBall {
         return window
     }
 
+    // MARK: 右键菜单
+
+    @ObservationIgnored private weak var menuPlayer: PlayerController?
+
+    func makeMenu() -> NSMenu {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        func item(_ title: String, checked: Bool = false, enabled: Bool = true, _ action: @escaping () -> Void) -> NSMenuItem {
+            let it = ClosureMenuItem(title: title, action: action)
+            it.state = checked ? .on : .off
+            it.isEnabled = enabled
+            return it
+        }
+        guard let player = menuPlayer else { return menu }
+        menu.addItem(item("打开主窗口") { FloatingBall.shared.exit() })
+        menu.addItem(.separator())
+        if let track = player.current {
+            let info = NSMenuItem(title: "\(track.title) — \(track.artist)", action: nil, keyEquivalent: "")
+            info.isEnabled = false
+            menu.addItem(info)
+        }
+        menu.addItem(item(player.isPlaying ? "暂停" : "播放") { player.togglePlayPause() })
+        menu.addItem(item("上一首") { player.previous() })
+        menu.addItem(item("下一首") { player.next() })
+        menu.addItem(.separator())
+        menu.addItem(item("悬浮球大小…") { FloatingBall.shared.showSizeAdjuster(player: player, .ball) })
+        menu.addItem(item("歌词胶囊大小…") { FloatingBall.shared.showSizeAdjuster(player: player, .lyric) })
+        let lyricsItem = NSMenuItem(title: "悬浮球歌词", action: nil, keyEquivalent: "")
+        let sub = NSMenu()
+        let mode = FloatingLyricsMode(rawValue: UserDefaults.standard.string(forKey: FloatingLyricsMode.key) ?? "") ?? .always
+        for m in FloatingLyricsMode.allCases {
+            sub.addItem(item(m.label, checked: m == mode) { UserDefaults.standard.set(m.rawValue, forKey: FloatingLyricsMode.key) })
+        }
+        lyricsItem.submenu = sub
+        menu.addItem(lyricsItem)
+        menu.addItem(item("显示两行歌词", checked: Self.twoLines, enabled: mode != .off) {
+            FloatingBall.shared.setTwoLines(!FloatingBall.twoLines)
+        })
+        let whenTucked = UserDefaults.standard.bool(forKey: FloatingLyricsMode.whenTuckedKey)
+        menu.addItem(item("贴边时也显示歌词", checked: whenTucked, enabled: mode != .off) {
+            UserDefaults.standard.set(!whenTucked, forKey: FloatingLyricsMode.whenTuckedKey)
+        })
+        menu.addItem(item("一直显示悬浮球", checked: Self.alwaysOn) {
+            FloatingBall.shared.setAlwaysOn(!FloatingBall.alwaysOn, player: player)
+        })
+        menu.addItem(.separator())
+        menu.addItem(item("关闭悬浮球") { FloatingBall.shared.close() })
+        return menu
+    }
+
     // MARK: 歌词条
 
     var lyricWidth: CGFloat { 320 * lyricScale }
-    var lyricHeight: CGFloat { (36 * lyricScale).rounded() }
+    var lyricHeight: CGFloat { ((Self.twoLines ? 58 : 36) * lyricScale).rounded() }
+
+    /// 「显示两行歌词」：当前这句 + 下一句（小一点、淡一点）
+    static let twoLinesKey = "floatingLyricsTwoLines"
+    static var twoLines: Bool { UserDefaults.standard.bool(forKey: twoLinesKey) }
+
+    func setTwoLines(_ on: Bool) {
+        UserDefaults.standard.set(on, forKey: Self.twoLinesKey)
+        if let panel { positionLyricPanel(for: tucked ? (shownFrame ?? panel.frame) : panel.frame) }
+    }
     private var lyricGap: CGFloat { 8 * scale }
 
     private func attachLyricPanel(player: PlayerController) {
@@ -489,6 +548,7 @@ final class FloatingBall {
     }
 
     private func makePanel(player: PlayerController) -> NSPanel {
+        menuPlayer = player
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: Self.size, height: Self.size),
                             styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.level = .floating
@@ -525,6 +585,16 @@ final class FloatingBall {
 private final class FirstClickHostingView<Content: View>: NSHostingView<Content> {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
+    /// 右键菜单用 AppKit 菜单，打开时生成一次。
+    /// （以前用 SwiftUI 的 contextMenu，球每 0.25 秒随进度重画，菜单跟着重建，二级菜单会闪）
+    override func menu(for event: NSEvent) -> NSMenu? {
+        FloatingBall.shared.makeMenu()
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        NSMenu.popUpContextMenu(FloatingBall.shared.makeMenu(), with: event, for: self)
+    }
+
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         for area in trackingAreas where area.owner === self && area.userInfo?["ball"] != nil {
@@ -547,19 +617,16 @@ private final class FirstClickHostingView<Content: View>: NSHostingView<Content>
 
 struct FloatingBallView: View {
     @Environment(PlayerController.self) private var player
-    @AppStorage(FloatingLyricsMode.key) private var lyricsMode: FloatingLyricsMode = .always
-    @AppStorage(FloatingLyricsMode.whenTuckedKey) private var lyricsWhenTucked = false
-    @AppStorage(FloatingBall.alwaysKey) private var alwaysOn = false
     private var hovering: Bool { FloatingBall.shared.hovering }
 
     /// 藏起一半时变小
     private var size: CGFloat { FloatingBall.shared.ballSize }
     /// 进度环粗细：跟着设置里的悬浮球大小一起变粗变细（贴边缩小时不变）
-    private var ring: CGFloat { 5 * FloatingBall.shared.scale }
+    private var ring: CGFloat { 3.5 * FloatingBall.shared.scale }
     /// 进度头圆点的直径
     private var knob: CGFloat { ring * 1.8 }
     /// 进度环往里收这么多，圆点整个落在球里面，不会被圆形边缘裁掉半个
-    private var ringInset: CGFloat { knob / 2 + 0.5 }
+    private var ringInset: CGFloat { knob / 2 }
     /// 封面的主色，用来给中间的毛玻璃染色
     @State private var coverTint: Color?
 
@@ -569,7 +636,7 @@ struct FloatingBallView: View {
         ZStack {
             // 半透明玻璃底，透出一点封面的颜色（没封面时用很淡的底色），让进度环看得清
             GlassBackground(cornerRadius: size / 2)
-            Circle().fill(coverTint.map { $0.opacity(0.55) } ?? Theme.card.opacity(0.35)).allowsHitTesting(false)
+            Circle().fill(coverTint.map { $0.opacity(0.3) } ?? Theme.card.opacity(0.2)).allowsHitTesting(false)
             if FloatingBall.shared.tuckedEdge == nil {
                 SpinningArtwork(track: player.current, size: (size / 2 - ringInset - ring / 2) * 2 - 1)
                     .allowsHitTesting(false)
@@ -586,10 +653,10 @@ struct FloatingBallView: View {
             } else {
                 Group {
                     // 进度环（和 App 图标一样：墨色 / 奶油色，进度头上一个圆点）
-                    Circle().stroke(Theme.track, lineWidth: ring).padding(ringInset)
+                    Circle().stroke(Theme.track.opacity(0.7), lineWidth: ring).padding(ringInset)
                     Circle()
                         .trim(from: 0, to: fraction)
-                        .stroke(Theme.text, style: StrokeStyle(lineWidth: ring, lineCap: .round))
+                        .stroke(Theme.accent, style: StrokeStyle(lineWidth: ring, lineCap: .round))
                         .rotationEffect(.degrees(-90))
                         .padding(ringInset)
                     progressKnob(angle: 2 * .pi * fraction)
@@ -618,29 +685,6 @@ struct FloatingBallView: View {
         .contentShape(Circle())
         // 拖动在 FloatingBall 里按鼠标事件处理；双击回主窗口
         .onTapGesture(count: 2) { FloatingBall.shared.exit() }
-        // 右键：悬浮球自己的菜单（播放控制 + 悬浮球的所有设置）
-        .contextMenu {
-            Button("打开主窗口") { FloatingBall.shared.exit() }
-            Divider()
-            if let track = player.current {
-                Text("\(track.title) — \(track.artist)")
-            }
-            Button(player.isPlaying ? "暂停" : "播放") { player.togglePlayPause() }
-            Button("上一首") { player.previous() }
-            Button("下一首") { player.next() }
-            Divider()
-            Button("悬浮球大小…") { FloatingBall.shared.showSizeAdjuster(player: player, .ball) }
-            Button("歌词胶囊大小…") { FloatingBall.shared.showSizeAdjuster(player: player, .lyric) }
-            Picker("悬浮球歌词", selection: $lyricsMode) {
-                ForEach(FloatingLyricsMode.allCases) { Text($0.label).tag($0) }
-            }
-            Toggle("贴边时也显示歌词", isOn: $lyricsWhenTucked)
-                .disabled(lyricsMode == .off)
-            Toggle("一直显示悬浮球", isOn: Binding(get: { alwaysOn },
-                                                set: { FloatingBall.shared.setAlwaysOn($0, player: player) }))
-            Divider()
-            Button("关闭悬浮球") { FloatingBall.shared.close() }
-        }
         .help(player.current.map { "\($0.title) — \($0.artist)\n双击回到主窗口" } ?? "双击回到主窗口")
     }
 
@@ -651,8 +695,8 @@ struct FloatingBallView: View {
         // 贴右边时露出左半边，进度从顶部沿左边走到底部；贴左边时反过来
         let mirror: CGFloat = edge == .right ? -1 : 1
         return ZStack {
-            halfArc(to: 1, color: Theme.track, width: ring, inset: ringInset, mirror: mirror)
-            halfArc(to: fraction, color: Theme.text, width: ring, inset: ringInset, mirror: mirror)
+            halfArc(to: 1, color: Theme.track.opacity(0.7), width: ring, inset: ringInset, mirror: mirror)
+            halfArc(to: fraction, color: Theme.accent, width: ring, inset: ringInset, mirror: mirror)
             progressKnob(angle: .pi * max(0, min(1, fraction)), mirror: mirror)
                 .opacity(fraction > 0.01 ? 1 : 0)
 
@@ -687,7 +731,7 @@ struct FloatingBallView: View {
     private func progressKnob(angle: Double, mirror: CGFloat = 1) -> some View {
         let r = size / 2 - ringInset
         return Circle()
-            .fill(Theme.text)
+            .fill(Theme.accent)
             .frame(width: knob, height: knob)
             .offset(x: mirror * r * CGFloat(sin(angle)), y: -r * CGFloat(cos(angle)))
     }
@@ -770,35 +814,52 @@ private struct FloatingLyricView: View {
     @Environment(PlayerController.self) private var player
     @AppStorage(FloatingLyricsMode.key) private var mode: FloatingLyricsMode = .always
     @AppStorage(FloatingLyricsMode.whenTuckedKey) private var showWhenTucked = false
+    @AppStorage(FloatingBall.twoLinesKey) private var twoLines = false
 
     var body: some View {
         let ball = FloatingBall.shared
+        let s = ball.lyricScale
         // 调胶囊大小时没歌词也显示一条示例
-        let line = currentLine.isEmpty && ball.adjustingLyric ? "歌词胶囊大小预览" : currentLine
+        let preview = ball.adjustingLyric && currentLine.isEmpty
+        let line = preview ? "歌词胶囊大小预览" : currentLine
+        let next = preview ? "下一句歌词" : nextLine
         let visible = ball.adjustingLyric || (!line.isEmpty && (ball.tuckedEdge == nil || showWhenTucked)
             && mode != .off && (mode == .always || ball.hovering))
-        ZStack {
+        // 文字靠球那一边对齐
+        let align: HorizontalAlignment = ball.lyricOnLeft ? .trailing : .leading
+        VStack(alignment: align, spacing: 2 * s) {
             Text(line)
-                .font(.ui(14 * ball.lyricScale, .semibold))
+                .font(.ui(14 * s, .semibold))
                 .foregroundStyle(Theme.text)
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .id(line)
                 .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity),
                                         removal: .move(edge: .top).combined(with: .opacity)))
+            if twoLines && !next.isEmpty {
+                Text(next)
+                    .font(.ui(11 * s, .medium))
+                    .foregroundStyle(Theme.text2)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .id("next" + next)
+                    .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity),
+                                            removal: .move(edge: .top).combined(with: .opacity)))
+            }
         }
-        .padding(.horizontal, 16 * ball.lyricScale)
-        .frame(height: (36 * ball.lyricScale).rounded())
+        .padding(.horizontal, 16 * s)
+        .padding(.vertical, twoLines ? 8 * s : 0)
+        .frame(minHeight: (36 * s).rounded())
         .clipped()
         .background {
             ZStack {
-                GlassBackground(cornerRadius: 18 * ball.lyricScale)
-                Capsule().fill(Theme.card.opacity(0.35))
+                GlassBackground(cornerRadius: 18 * s)
+                RoundedRectangle(cornerRadius: 18 * s, style: .continuous).fill(Theme.card.opacity(0.35))
             }
         }
-        .clipShape(Capsule())
+        .clipShape(RoundedRectangle(cornerRadius: 18 * s, style: .continuous))
         .animation(.easeInOut(duration: 0.35), value: line)
-        // 贴着球那一边对齐，长度跟着歌词变，最长到整个歌词条
+        // 贴着球那一边对齐，长度跟着歌词变，最长到整个歌词条；上下居中对齐球
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: ball.lyricOnLeft ? .trailing : .leading)
         .opacity(visible ? 1 : 0)
         .animation(.easeInOut(duration: 0.2), value: visible)
@@ -808,6 +869,14 @@ private struct FloatingLyricView: View {
     private var currentLine: String {
         guard player.lyricsState == .loaded, let i = player.currentLyricIndex, player.lyrics.indices.contains(i) else { return "" }
         return player.lyrics[i].text.trimmingCharacters(in: .whitespaces)
+    }
+
+    /// 下一句（跳过空行）
+    private var nextLine: String {
+        guard player.lyricsState == .loaded else { return "" }
+        let start = (player.currentLyricIndex ?? -1) + 1
+        guard start < player.lyrics.count else { return "" }
+        return player.lyrics[start...].lazy.map { $0.text.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty } ?? ""
     }
 }
 
@@ -905,4 +974,19 @@ private struct FloatingBallSizeView: View {
 /// 调大小卡片不抢焦点，第一次点就响应
 private final class ClickThroughHostingView<Content: View>: NSHostingView<Content> {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
+/// 带闭包的菜单项
+private final class ClosureMenuItem: NSMenuItem {
+    private let handler: () -> Void
+
+    init(title: String, action handler: @escaping () -> Void) {
+        self.handler = handler
+        super.init(title: title, action: #selector(run), keyEquivalent: "")
+        target = self
+    }
+
+    required init(coder: NSCoder) { fatalError() }
+
+    @objc private func run() { MainActor.assumeIsolated { handler() } }
 }
