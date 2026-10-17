@@ -295,7 +295,7 @@ struct NowPlayingView: View {
                     .font(.ui(16, .bold))
                     .lineLimit(1)
                 HStack(spacing: 6) {
-                    if let track = player.current { QualityBadge(quality: track.quality) }
+                    if let track = player.current { QualityBadge(track: track) }
                     // 独占输出时显示设备实际的采样率，确认没有被重采样
                     if let rate = ExclusiveOutput.shared.outputRate {
                         Button { showOutputPath.toggle() } label: {

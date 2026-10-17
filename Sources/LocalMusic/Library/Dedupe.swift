@@ -66,7 +66,7 @@ enum TrackDeduper {
 
     private static func qualityRank(_ t: Track) -> Int {
         switch t.quality {
-        case .hr: return 2
+        case .hr, .dsd: return 2
         case .sq: return 1
         case .standard: return 0
         }

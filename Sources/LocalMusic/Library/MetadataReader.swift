@@ -4,7 +4,7 @@ import Foundation
 /// 读取音频文件自带的信息（歌名、歌手、专辑、音质、内嵌封面、内嵌歌词）
 enum MetadataReader {
     static let audioExtensions: Set<String> = [
-        "mp3", "m4a", "aac", "flac", "wav", "aif", "aiff", "aifc", "caf", "alac", "mp4"
+        "mp3", "m4a", "aac", "flac", "wav", "aif", "aiff", "aifc", "caf", "alac", "mp4", "dsf", "dff"
     ]
 
     static func readTrack(url: URL, modified: Date) async -> Track {
@@ -17,7 +17,19 @@ enum MetadataReader {
         var bitDepth = 0
         var lossless = false
 
-        if url.pathExtension.lowercased() == "flac", let flac = FLACParser.read(url: url, includePicture: false) {
+        if DSDFile.extensions.contains(url.pathExtension.lowercased()) {
+            // DSD：自己读文件头和标签（AVFoundation 不认识）
+            if let dsd = DSDFile.read(url: url) {
+                title = dsd.title
+                artist = dsd.artist
+                album = dsd.album
+                trackNumber = dsd.trackNumber
+                duration = dsd.duration
+                sampleRate = Double(dsd.sampleRate)
+                bitDepth = 1
+                lossless = true
+            }
+        } else if url.pathExtension.lowercased() == "flac", let flac = FLACParser.read(url: url, includePicture: false) {
             title = flac.tags["TITLE"]
             artist = flac.tags["ARTIST"] ?? flac.tags["ALBUMARTIST"]
             album = flac.tags["ALBUM"]
@@ -86,6 +98,9 @@ enum MetadataReader {
 
     /// 文件内嵌的封面图片
     static func embeddedArtwork(url: URL) async -> Data? {
+        if DSDFile.extensions.contains(url.pathExtension.lowercased()) {
+            return DSDFile.read(url: url, includePicture: true)?.picture
+        }
         if url.pathExtension.lowercased() == "flac", let flac = FLACParser.read(url: url, includePicture: true) {
             return flac.picture
         }
@@ -99,6 +114,9 @@ enum MetadataReader {
 
     /// 文件内嵌的歌词
     static func embeddedLyrics(url: URL) async -> String? {
+        if DSDFile.extensions.contains(url.pathExtension.lowercased()) {
+            return DSDFile.read(url: url)?.lyrics.flatMap { $0.isBlank ? nil : $0 }
+        }
         if url.pathExtension.lowercased() == "flac", let flac = FLACParser.read(url: url, includePicture: false) {
             for key in ["LYRICS", "UNSYNCEDLYRICS", "SYNCEDLYRICS", "UNSYNCED LYRICS"] {
                 if let text = flac.tags[key], !text.isBlank { return text }

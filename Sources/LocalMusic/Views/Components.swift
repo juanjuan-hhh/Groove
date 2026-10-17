@@ -46,20 +46,21 @@ struct ArtworkView: View {
     }
 }
 
-/// SQ / HR 音质标签：纯色小胶囊，SQ 赭橙、HR 芥末黄
+/// SQ / HR / DSD 音质标签：纯色小胶囊，SQ 赭橙、HR 芥末黄、DSD 石板蓝（写成 DSD64、DSD128……）
 struct QualityBadge: View {
-    let quality: AudioQuality
+    let track: Track
 
     var body: some View {
-        switch quality {
+        switch track.quality {
         case .sq: badge("SQ", Theme.terra)
         case .hr: badge("HR", Theme.mustard)
+        case .dsd: badge(track.dsdLabel ?? "DSD", Theme.slate, foreground: Theme.cream)
         case .standard: EmptyView()
         }
     }
 
-    private func badge(_ text: String, _ color: Color) -> some View {
-        ChipText(text: text, color: color, font: .ui(9, .heavy), hPad: 5, vPad: 1)
+    private func badge(_ text: String, _ color: Color, foreground: Color = Theme.ink) -> some View {
+        ChipText(text: text, color: color, foreground: foreground, font: .ui(9, .heavy), hPad: 5, vPad: 1)
     }
 }
 

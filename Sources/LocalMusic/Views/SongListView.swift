@@ -243,7 +243,7 @@ struct TrackRow: View {
                         .font(.ui(14, isCurrent ? .bold : .medium))
                         .foregroundStyle(isCurrent ? Theme.accent : Theme.text)
                         .lineLimit(1)
-                    QualityBadge(quality: track.quality)
+                    QualityBadge(track: track)
                 }
                 Spacer(minLength: 4)
                 if isCurrent { PlayingBars(isPlaying: player.isPlaying) }
@@ -281,7 +281,7 @@ struct TrackRow: View {
                     .foregroundStyle(isCurrent ? Theme.accent : Theme.text)
                     .lineLimit(1)
                 HStack(spacing: 6) {
-                    QualityBadge(quality: track.quality)
+                    QualityBadge(track: track)
                     Text("\(track.artist) | \(formatTime(track.duration))")
                         .font(.ui(12))
                         .foregroundStyle(Theme.text2)

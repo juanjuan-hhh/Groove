@@ -2,6 +2,13 @@ import AVFoundation
 import CoreAudio
 import Observation
 
+/// DSD 在独占时怎么输出：转成 PCM（默认，哪里都能放），或者 DoP 原样交给支持 DSD 的解码器
+enum DSDOutputMode: String, CaseIterable, Identifiable {
+    case pcm, dop
+    var id: Self { self }
+    var label: String { self == .pcm ? "PCM 转换" : "DoP（需解码器支持）" }
+}
+
 /// 一个输出设备（扬声器、耳机口、USB 解码器……）
 struct OutputDevice: Identifiable, Hashable {
     let id: AudioDeviceID
@@ -21,12 +28,18 @@ final class ExclusiveOutput {
 
     static let enabledKey = "exclusiveOutput"
     static let deviceKey = "outputDeviceUID"
+    static let dsdModeKey = "dsdOutputMode"
 
     /// 所有能输出声音的设备（插拔时自动更新）
     private(set) var devices: [OutputDevice] = []
     /// 选中的设备，空字符串 = 跟随系统
     private(set) var selectedUID: String = UserDefaults.standard.string(forKey: ExclusiveOutput.deviceKey) ?? ""
     private(set) var enabled: Bool = UserDefaults.standard.bool(forKey: ExclusiveOutput.enabledKey)
+    private(set) var dsdMode: DSDOutputMode =
+        DSDOutputMode(rawValue: UserDefaults.standard.string(forKey: ExclusiveOutput.dsdModeKey) ?? "") ?? .pcm
+    /// 输出设置（设备、独占、DSD 方式）变了，或者设备插拔了：播放器正在放 DSD 时要重新决定 PCM / DoP。
+    /// 返回 true 表示播放器已经重新载入了（这时不用再 reapply）
+    @ObservationIgnored var configChanged: (() -> Bool)?
     /// 独占中设备现在的采样率（界面上显示「输出 96kHz」），没在独占时为 nil
     private(set) var outputRate: Double?
     /// 短暂提示（设备拔掉了之类），几秒后自动清掉
@@ -34,8 +47,13 @@ final class ExclusiveOutput {
 
     /// 正在独占的设备，以及占用前它原来的采样率（还回去时恢复）
     @ObservationIgnored private var held: (id: AudioDeviceID, originalRate: Double)?
+    /// DoP 时改过声卡的物理格式（改成整数），还回去时恢复
+    @ObservationIgnored private var originalFormat: (stream: AudioStreamID, format: AudioStreamBasicDescription)?
+    /// 这次 prepare 有没有把声卡设成 DoP 要的整数格式
+    @ObservationIgnored private var dopFormatReady = false
     @ObservationIgnored private weak var player: AVPlayer?
     @ObservationIgnored private var lastTrackRate: Double = 0
+    @ObservationIgnored private var lastDoP = false
     @ObservationIgnored private var idleRelease: Task<Void, Never>?
     @ObservationIgnored private var noticeTask: Task<Void, Never>?
 
@@ -50,25 +68,38 @@ final class ExclusiveOutput {
         guard uid != selectedUID else { return }
         selectedUID = uid
         UserDefaults.standard.set(uid, forKey: Self.deviceKey)
+        // DoP 的数据不能在还回系统的设备上多放一下（会是一阵噪音），先停住，重新载入时再接着放
+        if lastDoP { player?.pause() }
         release()
-        reapply()
+        if configChanged?() != true { reapply() }
     }
 
     func setEnabled(_ on: Bool) {
         guard on != enabled else { return }
         enabled = on
         UserDefaults.standard.set(on, forKey: Self.enabledKey)
+        let handled = configChanged?() ?? false
         if !on { release() }
-        reapply()
+        if !handled { reapply() }
+    }
+
+    func setDSDMode(_ mode: DSDOutputMode) {
+        guard mode != dsdMode else { return }
+        dsdMode = mode
+        UserDefaults.standard.set(mode.rawValue, forKey: Self.dsdModeKey)
+        _ = configChanged?()
     }
 
 
     // MARK: 播放器调用
 
     /// 每首歌开始播放前调用：选设备、独占、按这首歌切采样率
-    func prepare(player: AVPlayer, sampleRate: Double) {
+    /// dop：这首是 DoP 打包的 DSD，声卡还要设成 24/32 位整数格式（浮点格式到不了解码器的原样数据）
+    func prepare(player: AVPlayer, sampleRate: Double, dop: Bool = false) {
         self.player = player
         lastTrackRate = sampleRate
+        lastDoP = dop
+        dopFormatReady = false
         idleRelease?.cancel()
         // 选中的设备没插着时先用系统默认，插回来后（devicesChanged）自动用回它
         let uid = devices.contains { $0.uid == selectedUID } ? selectedUID : nil
@@ -92,6 +123,43 @@ final class ExclusiveOutput {
         let deviceUID = Self.uid(of: id)
         if player.audioOutputDeviceUniqueID != deviceUID { player.audioOutputDeviceUniqueID = deviceUID }
         outputRate = rate
+        if dop { dopFormatReady = setIntegerFormat(id, rate: rate) }
+    }
+
+    /// DoP 现在能不能用；不能用时返回原因（音频链路里显示）
+    func dopProblem(rate: Double) -> String? {
+        guard enabled else { return "未开启独占输出" }
+        guard let held, Self.hogOwner(held.id) == getpid() else { return "没能独占声卡" }
+        guard outputRate == rate else { return "声卡不支持 \(SignalPath.khz(rate))" }
+        guard dopFormatReady else { return "声卡没有 24/32 位整数格式" }
+        return nil
+    }
+
+    /// 把声卡第一个输出流设成这个采样率下的 24 位（没有就 32 位）整数格式
+    private func setIntegerFormat(_ id: AudioDeviceID, rate: Double) -> Bool {
+        guard let stream = DeviceStatus.outputStreams(id).first else { return false }
+        var addr = Self.address(kAudioStreamPropertyAvailablePhysicalFormats)
+        var size: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(stream, &addr, 0, nil, &size) == noErr, size > 0 else { return false }
+        var formats = [AudioStreamRangedDescription](repeating: AudioStreamRangedDescription(),
+                                                     count: Int(size) / MemoryLayout<AudioStreamRangedDescription>.size)
+        guard AudioObjectGetPropertyData(stream, &addr, 0, nil, &size, &formats) == noErr else { return false }
+        let candidates = formats.filter {
+            $0.mFormat.mFormatID == kAudioFormatLinearPCM
+                && $0.mFormat.mFormatFlags & kAudioFormatFlagIsFloat == 0
+                && $0.mFormat.mFormatFlags & kAudioFormatFlagIsSignedInteger != 0
+                && $0.mSampleRateRange.mMinimum <= rate && rate <= $0.mSampleRateRange.mMaximum
+                && ($0.mFormat.mBitsPerChannel == 24 || $0.mFormat.mBitsPerChannel == 32)
+        }
+        guard var best = (candidates.first { $0.mFormat.mBitsPerChannel == 24 } ?? candidates.first)?.mFormat else { return false }
+        best.mSampleRate = rate
+        guard let current = DeviceStatus.physicalFormat(id) else { return false }
+        if current.mBitsPerChannel == best.mBitsPerChannel, current.mFormatFlags == best.mFormatFlags,
+           current.mSampleRate == rate { return true }
+        if originalFormat == nil { originalFormat = (stream, current) }
+        var addrSet = Self.address(kAudioStreamPropertyPhysicalFormat)
+        return AudioObjectSetPropertyData(stream, &addrSet, 0, nil,
+                                          UInt32(MemoryLayout<AudioStreamBasicDescription>.size), &best) == noErr
     }
 
     /// 暂停时调用：暂停超过一会儿就把设备还给系统（别的 App 又能出声）
@@ -110,12 +178,18 @@ final class ExclusiveOutput {
         idleRelease?.cancel()
         guard let held else { return }
         if Self.deviceExists(held.id) {
+            if var format = originalFormat?.format, let stream = originalFormat?.stream {
+                var addr = Self.address(kAudioStreamPropertyPhysicalFormat)
+                AudioObjectSetPropertyData(stream, &addr, 0, nil, UInt32(MemoryLayout<AudioStreamBasicDescription>.size), &format)
+            }
             if held.originalRate > 0, Self.nominalRate(held.id) != held.originalRate {
                 Self.setNominalRate(held.id, held.originalRate)
             }
             Self.setHog(held.id, take: false)
         }
         self.held = nil
+        originalFormat = nil
+        dopFormatReady = false
         outputRate = nil
     }
 
@@ -123,7 +197,7 @@ final class ExclusiveOutput {
     private func reapply() {
         guard let player, player.currentItem != nil else { return }
         if player.rate > 0 || !enabled {
-            prepare(player: player, sampleRate: lastTrackRate)
+            prepare(player: player, sampleRate: lastTrackRate, dop: lastDoP)
         }
     }
 
@@ -143,6 +217,8 @@ final class ExclusiveOutput {
         devices = Self.outputDevices()
         if let held, !Self.deviceExists(held.id) {
             self.held = nil
+            originalFormat = nil
+            dopFormatReady = false
             outputRate = nil
         }
         guard !selectedUID.isEmpty else { return }
@@ -152,13 +228,13 @@ final class ExclusiveOutput {
             // 选中的设备拔掉了：先改用系统默认（选择还记着，插回来自动用回它）
             let name = before.first { $0.uid == selectedUID }?.name ?? "输出设备"
             show(notice: "「\(name)」已断开，改用系统默认输出")
-            reapply()
+            if configChanged?() != true { reapply() }
         } else if !wasThere && isThere {
-            reapply()
+            if configChanged?() != true { reapply() }
         }
     }
 
-    private func show(notice text: String) {
+    func show(notice text: String) {
         notice = text
         noticeTask?.cancel()
         noticeTask = Task { [weak self] in

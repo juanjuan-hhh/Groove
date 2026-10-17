@@ -50,8 +50,9 @@ struct SignalPathView: View {
         guard let track = player.current else { path = nil; return }
         let volume = player.outputVolume
         let uid = player.outputDeviceUID
+        let stream = player.stream
         path = await Task.detached(priority: .userInitiated) {
-            SignalPath.read(track: track, volume: volume, deviceUID: uid)
+            SignalPath.read(track: track, stream: stream, volume: volume, deviceUID: uid)
         }.value
     }
 
@@ -59,7 +60,7 @@ struct SignalPathView: View {
         HStack(spacing: 4) {
             Image(systemName: path.bitPerfect ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
                 .font(.system(size: 11, weight: .bold))
-            Text(path.bitPerfect ? "比特完美" : (path.reasons.first == "未独占，经过系统混音" ? "经过系统混音" : "已处理"))
+            Text(path.bitPerfect ? (path.isDoP ? "比特完美 · DoP" : "比特完美") : (path.reasons.first == "未独占，经过系统混音" ? "经过系统混音" : "已处理"))
                 .font(.ui(12, .bold))
         }
         .foregroundStyle(path.bitPerfect ? Theme.cream : Theme.ink)

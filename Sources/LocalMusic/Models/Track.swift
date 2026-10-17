@@ -1,7 +1,7 @@
 import Foundation
 
 enum AudioQuality: String, Codable {
-    case standard, sq, hr
+    case standard, sq, hr, dsd
 }
 
 struct Track: Identifiable, Codable, Hashable {
@@ -31,6 +31,10 @@ struct Track: Identifiable, Codable, Hashable {
 
     /// 正在播放页显示的格式信息，例如「FLAC · 16bit · 44.1kHz」「MP3 · 44.1kHz」
     var formatDescription: String {
+        // DSD：「DSF · DSD64 · 2.8MHz」
+        if let dsd = dsdLabel {
+            return [codec, dsd, String(format: "%.1fMHz", sampleRate / 1_000_000)].joined(separator: " · ")
+        }
         var parts = [codec]
         if isLossless && bitDepth > 0 { parts.append("\(bitDepth)bit") }
         if sampleRate > 0 {
@@ -51,12 +55,21 @@ struct Track: Identifiable, Codable, Hashable {
         case "wav": return "WAV"
         case "aif", "aiff", "aifc": return "AIFF"
         case "caf": return "CAF"
+        case "dsf": return "DSF"
+        case "dff": return "DFF"
         default: return ext.uppercased()
         }
     }
 
+    /// DSD 文件（.dsf / .dff）：采样率记的是 DSD 采样率（2822400……），位深记 1
+    var isDSD: Bool { bitDepth == 1 && DSDFile.extensions.contains(url.pathExtension.lowercased()) }
+
+    /// 「DSD64」「DSD128」……，不是 DSD 时为 nil
+    var dsdLabel: String? { isDSD ? "DSD\(Int((sampleRate / 44100).rounded()))" : nil }
+
     /// SQ = 无损（16bit / 44.1–48kHz），HR = 高解析（24bit 以上或采样率高于 48kHz）
     var quality: AudioQuality {
+        if isDSD { return .dsd }
         guard isLossless else { return .standard }
         return (bitDepth > 16 || sampleRate > 48_000) ? .hr : .sq
     }

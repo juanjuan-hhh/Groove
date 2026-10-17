@@ -94,6 +94,7 @@ struct SignalPath {
 
     var stages: [Stage]
     var bitPerfect: Bool
+    var isDoP = false
     /// 不是比特完美的原因
     var reasons: [String]
 
@@ -112,28 +113,55 @@ struct SignalPath {
     }
 
     /// 读文件和 Core Audio，算出整条链路（在后台线程调用）
-    static func read(track: Track, volume: Float, deviceUID: String?) -> SignalPath {
+    static func read(track: Track, stream: PlaybackStream, volume: Float, deviceUID: String?) -> SignalPath {
         var reasons: [String] = []
 
         // 源文件
         var channels = 0
-        if let file = try? AVAudioFile(forReading: track.url) {
-            channels = Int(file.fileFormat.channelCount)
+        var sourceRows: [Row] = []
+        if track.isDSD {
+            channels = DSDFile.read(url: track.url)?.channels ?? 0
+            sourceRows.append(Row("格式", track.codec + "（DSD）"))
+            sourceRows.append(Row("采样率", (track.dsdLabel ?? "DSD") + " · " + String(format: "%.4fMHz", track.sampleRate / 1_000_000)))
+            sourceRows.append(Row("位深", "1bit"))
+        } else {
+            if let file = try? AVAudioFile(forReading: track.url) {
+                channels = Int(file.fileFormat.channelCount)
+            }
+            sourceRows.append(Row("格式", track.codec + (track.isLossless ? "（无损）" : "（有损）")))
+            if track.isLossless && track.bitDepth > 0 { sourceRows.append(Row("位深", "\(track.bitDepth)bit")) }
+            if track.sampleRate > 0 { sourceRows.append(Row("采样率", khz(track.sampleRate))) }
         }
-        var sourceRows: [Row] = [Row("格式", track.codec + (track.isLossless ? "（无损）" : "（有损）"), nil)]
-        if track.isLossless && track.bitDepth > 0 { sourceRows.append(Row("位深", "\(track.bitDepth)bit", nil)) }
-        if track.sampleRate > 0 { sourceRows.append(Row("采样率", khz(track.sampleRate), nil)) }
-        if channels > 0 { sourceRows.append(Row("声道", channelsText(channels), nil)) }
+        if channels > 0 { sourceRows.append(Row("声道", channelsText(channels))) }
         if !track.isLossless { reasons.append("源文件是有损格式") }
 
-        // 解码：AVPlayer 统一解码成 32 位浮点
-        let decodeText: String
-        switch track.codec {
-        case "WAV", "AIFF", "CAF": decodeText = "PCM \(track.bitDepth > 0 ? "\(track.bitDepth)bit " : "")→ 32位浮点"
-        default: decodeText = "\(track.codec) 解码 → 32位浮点"
+        // 解码：AVPlayer 统一解码成 32 位浮点；DSD 由 Groove 自己转换或打包
+        var decodeRows: [Row] = []
+        let streamRate: Double
+        var isDoP = false
+        switch stream {
+        case .dop(let rate):
+            isDoP = true
+            streamRate = rate
+            decodeRows.append(Row("方式", "DoP 封装（不解码）", true))
+            decodeRows.append(Row("传输", "24bit · \(khz(rate))，0x05/0xFA 标记"))
+        case .dsdPCM(let rate, let dopProblem):
+            streamRate = rate
+            decodeRows.append(Row("方式", "DSD → PCM \(khz(rate)) 32位浮点"))
+            decodeRows.append(Row("滤波", "低通 45kHz，留 6dB 余量"))
+            if let dopProblem {
+                decodeRows.append(Row("DoP", "用不了：\(dopProblem)", false))
+            }
+            reasons.append("DSD 转换成了 PCM")
+        case .file:
+            streamRate = track.sampleRate
+            switch track.codec {
+            case "WAV", "AIFF", "CAF":
+                decodeRows.append(Row("解码", "PCM \(track.bitDepth > 0 ? "\(track.bitDepth)bit " : "")→ 32位浮点"))
+            default:
+                decodeRows.append(Row("解码", "\(track.codec) 解码 → 32位浮点"))
+            }
         }
-        let streamRate = track.sampleRate
-        let decodeRows: [Row] = [Row("解码", decodeText, nil)]
 
         // 输出设备
         let deviceID = deviceUID.flatMap(ExclusiveOutput.deviceID(forUID:)) ?? ExclusiveOutput.defaultOutputDevice()
@@ -168,8 +196,12 @@ struct SignalPath {
             outputRows.append(Row("独占", device.hoggedByUs ? "是" : "否", device.hoggedByUs))
             outputRows.append(Row("系统混音", device.hoggedByUs ? "已绕过" : "经过", device.hoggedByUs))
             if !device.hoggedByUs { reasons.insert("未独占，经过系统混音", at: 0) }
-            if track.isLossless, track.bitDepth > 0, device.physicalBits > 0, !device.physicalFloat,
-               device.physicalBits < track.bitDepth {
+            if isDoP {
+                if device.physicalFloat || device.physicalBits < 24 {
+                    reasons.append("声卡是 \(device.formatText)，DoP 数据到不了解码器")
+                }
+            } else if !track.isDSD, track.isLossless, track.bitDepth > 0, device.physicalBits > 0, !device.physicalFloat,
+                      device.physicalBits < track.bitDepth {
                 reasons.append("声卡 \(device.physicalBits)位，低于源文件 \(track.bitDepth)位")
             }
         } else {
@@ -183,6 +215,6 @@ struct SignalPath {
             Stage(id: "process", title: "处理", icon: "slider.horizontal.3", rows: processRows),
             Stage(id: "output", title: "输出", icon: "hifispeaker", rows: outputRows),
         ]
-        return SignalPath(stages: stages, bitPerfect: reasons.isEmpty, reasons: reasons)
+        return SignalPath(stages: stages, bitPerfect: reasons.isEmpty, isDoP: isDoP, reasons: reasons)
     }
 }

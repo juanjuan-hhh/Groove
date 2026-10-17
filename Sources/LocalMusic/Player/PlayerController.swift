@@ -23,6 +23,16 @@ enum RepeatMode: Int, CaseIterable {
     }
 }
 
+/// 实际交给 AVPlayer 的是什么
+enum PlaybackStream: Equatable, Sendable {
+    /// 文件本身（FLAC、MP3……）
+    case file
+    /// DSD 转成的 PCM；dopProblem：选了 DoP 但用不了的原因
+    case dsdPCM(rate: Double, dopProblem: String?)
+    /// DoP 打包的 DSD
+    case dop(rate: Double)
+}
+
 enum LyricsState: Equatable {
     case idle, loading, loaded, notFound
 }
@@ -68,6 +78,9 @@ final class PlayerController {
     /// 音频链路面板用：播放器音量（1 = 100%，不做数字音量）和正在输出到的设备（nil = 系统默认）
     var outputVolume: Float { player.volume }
     var outputDeviceUID: String? { player.audioOutputDeviceUniqueID }
+    private(set) var stream: PlaybackStream = .file
+    /// DSD 的虚拟 WAV 数据来源（AVPlayer 只弱引用它）
+    @ObservationIgnored private var dsdLoader: DSDResourceLoader?
 
     var upNext: Track? {
         guard !queue.isEmpty else { return nil }
@@ -158,6 +171,7 @@ final class PlayerController {
             }
         }
         setupRemoteCommands()
+        ExclusiveOutput.shared.configChanged = { [weak self] in self?.outputSettingsChanged() ?? false }
     }
 
     // MARK: 播放队列
@@ -241,7 +255,14 @@ final class PlayerController {
 
     func resume() {
         guard player.currentItem != nil else { return }
-        if let track = current { ExclusiveOutput.shared.prepare(player: player, sampleRate: track.sampleRate) }
+        if let track = current {
+            prepareOutput(for: track)
+            // 暂停太久设备被还回去了，再占的时候 DoP 用不了（比如被别的 App 占了）：改成 PCM 接着放
+            if case .dop(let rate) = stream, ExclusiveOutput.shared.dopProblem(rate: rate) != nil {
+                reloadItem(autoplay: true)
+                return
+            }
+        }
         player.play()
         isPlaying = true
         updateNowPlayingInfo()
@@ -308,9 +329,7 @@ final class PlayerController {
 
     private func load(autoplay: Bool) {
         guard let track = current else { return }
-        // 先选好输出设备；独占时按这首歌切采样率
-        ExclusiveOutput.shared.prepare(player: player, sampleRate: track.sampleRate)
-        player.replaceCurrentItem(with: AVPlayerItem(url: track.url))
+        player.replaceCurrentItem(with: makeItem(for: track))
         currentTime = 0
         duration = track.duration
         if autoplay {
@@ -321,6 +340,79 @@ final class PlayerController {
             isPlaying = false
         }
         loadExtras(for: track)
+        updateNowPlayingInfo()
+    }
+
+    // MARK: 输出 / DSD
+
+    /// 先选好输出设备、独占时切采样率，再做出要播放的 item。
+    /// DSD 文件变成虚拟 WAV：独占 + 选了 DoP + 声卡支持时用 DoP，否则转成 PCM
+    private func makeItem(for track: Track) -> AVPlayerItem {
+        dsdLoader = nil
+        guard track.isDSD else {
+            stream = .file
+            prepareOutput(for: track)
+            return AVPlayerItem(url: track.url)
+        }
+        guard let file = DSDFile.read(url: track.url), !file.compressed else {
+            stream = .file
+            ExclusiveOutput.shared.show(notice: "这首 DFF 是 DST 压缩格式，暂时不能播放")
+            return AVPlayerItem(url: track.url)
+        }
+        let output = ExclusiveOutput.shared
+        var dopProblem: String?
+        if output.enabled && output.dsdMode == .dop {
+            let rate = Double(file.sampleRate / 16)
+            if player.volume < 0.9999 {
+                dopProblem = "音量不是 100%"
+            } else {
+                stream = .dop(rate: rate)
+                prepareOutput(for: track)
+                dopProblem = output.dopProblem(rate: rate)
+                if dopProblem == nil, let decoder = DSDDecoder(url: track.url, file: file, mode: .dop) {
+                    return makeDSDItem(decoder)
+                }
+            }
+        }
+        stream = .dsdPCM(rate: Double(DSDDecoder.pcmRate), dopProblem: dopProblem)
+        prepareOutput(for: track)
+        guard let decoder = DSDDecoder(url: track.url, file: file, mode: .pcm) else { return AVPlayerItem(url: track.url) }
+        return makeDSDItem(decoder)
+    }
+
+    private func makeDSDItem(_ decoder: DSDDecoder) -> AVPlayerItem {
+        let loader = DSDResourceLoader(decoder: decoder)
+        dsdLoader = loader
+        return AVPlayerItem(asset: loader.makeAsset())
+    }
+
+    /// 按现在交给 AVPlayer 的流选设备、切采样率
+    private func prepareOutput(for track: Track) {
+        let output = ExclusiveOutput.shared
+        switch stream {
+        case .file: output.prepare(player: player, sampleRate: track.sampleRate)
+        case .dsdPCM(let rate, _): output.prepare(player: player, sampleRate: rate)
+        case .dop(let rate): output.prepare(player: player, sampleRate: rate, dop: true)
+        }
+    }
+
+    /// 输出设置变了：正在放 DSD 就按新设置重新载入（PCM / DoP 可能要换），接着原来的位置放
+    private func outputSettingsChanged() -> Bool {
+        guard let track = current, track.isDSD, player.currentItem != nil else { return false }
+        reloadItem(autoplay: isPlaying)
+        return true
+    }
+
+    private func reloadItem(autoplay: Bool) {
+        guard let track = current else { return }
+        let time = currentTime
+        player.pause()
+        player.replaceCurrentItem(with: makeItem(for: track))
+        if time > 0 {
+            player.seek(to: CMTime(seconds: time, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+        }
+        if autoplay { player.play() }
+        isPlaying = autoplay
         updateNowPlayingInfo()
     }
 
