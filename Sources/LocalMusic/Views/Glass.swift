@@ -82,6 +82,7 @@ final class AppBackground {
         didSet { UserDefaults.standard.set(dim, forKey: Self.dimKey) }
     }
     @ObservationIgnored private var adjustPanel: NSPanel?
+    private static let adjustOriginKey = "backgroundAdjustOrigin"
 
     private init() {
         if let data = try? Data(contentsOf: Self.file) { image = Self.decode(data) }
@@ -114,7 +115,11 @@ final class AppBackground {
         let panel = adjustPanel ?? makeAdjustPanel()
         adjustPanel = panel
         let main = NSApp.windows.first { !($0 is NSPanel) && $0.isVisible && $0.canBecomeMain }
-        if let frame = main?.frame {
+        // 上次拖到哪儿就还在哪儿（那块屏幕还在的话），不然放在主窗口下方
+        if let saved = UserDefaults.standard.string(forKey: Self.adjustOriginKey).map(NSPointFromString),
+           NSScreen.screens.contains(where: { $0.visibleFrame.contains(NSRect(origin: saved, size: panel.frame.size)) }) {
+            panel.setFrameOrigin(saved)
+        } else if let frame = main?.frame {
             panel.setFrameOrigin(NSPoint(x: frame.midX - panel.frame.width / 2, y: frame.minY + 110))
         } else {
             panel.center()
@@ -135,7 +140,11 @@ final class AppBackground {
         panel.hasShadow = true
         panel.hidesOnDeactivate = true
         panel.isReleasedWhenClosed = false
-        panel.isMovableByWindowBackground = true
+        // 按住标题那一行拖动（WindowDragArea），滑块照常拖；拖完记住位置
+        NotificationCenter.default.addObserver(forName: NSWindow.didMoveNotification, object: panel, queue: .main) { note in
+            guard let window = note.object as? NSWindow else { return }
+            UserDefaults.standard.set(NSStringFromPoint(window.frame.origin), forKey: AppBackground.adjustOriginKey)
+        }
         let host = NSHostingView(rootView: BackgroundAdjustView().modifier(ThemedAppearance()))
         host.frame = NSRect(origin: .zero, size: host.fittingSize)
         panel.setContentSize(host.fittingSize)
@@ -150,7 +159,16 @@ private struct BackgroundAdjustView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("调整背景图片").font(.ui(14, .bold))
+            HStack {
+                Text("调整背景图片").font(.ui(14, .bold))
+                Spacer()
+                Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Theme.text3)
+            }
+            .contentShape(Rectangle())
+            .background(WindowDragArea(onDoubleClick: {}))
+            .help("按住这一行拖动")
             row("模糊", value: $background.blur, range: AppBackground.blurRange,
                 label: "\(Int(background.blur.rounded()))")
             row("透明度", value: $background.dim, range: AppBackground.dimRange,
