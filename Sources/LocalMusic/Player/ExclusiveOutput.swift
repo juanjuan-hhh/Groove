@@ -170,12 +170,12 @@ final class ExclusiveOutput {
 
     // MARK: Core Audio
 
-    private static func address(_ selector: AudioObjectPropertySelector,
+    nonisolated static func address(_ selector: AudioObjectPropertySelector,
                                 _ scope: AudioObjectPropertyScope = kAudioObjectPropertyScopeGlobal) -> AudioObjectPropertyAddress {
         AudioObjectPropertyAddress(mSelector: selector, mScope: scope, mElement: kAudioObjectPropertyElementMain)
     }
 
-    static func outputDevices() -> [OutputDevice] {
+    nonisolated static func outputDevices() -> [OutputDevice] {
         var addr = address(kAudioHardwarePropertyDevices)
         var size: UInt32 = 0
         guard AudioObjectGetPropertyDataSize(AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &size) == noErr else { return [] }
@@ -187,13 +187,13 @@ final class ExclusiveOutput {
         }
     }
 
-    private static func hasOutput(_ id: AudioDeviceID) -> Bool {
+    private nonisolated static func hasOutput(_ id: AudioDeviceID) -> Bool {
         var addr = address(kAudioDevicePropertyStreams, kAudioObjectPropertyScopeOutput)
         var size: UInt32 = 0
         return AudioObjectGetPropertyDataSize(id, &addr, 0, nil, &size) == noErr && size > 0
     }
 
-    private static func string(_ id: AudioObjectID, _ selector: AudioObjectPropertySelector) -> String? {
+    nonisolated static func string(_ id: AudioObjectID, _ selector: AudioObjectPropertySelector) -> String? {
         var addr = address(selector)
         var value: Unmanaged<CFString>?
         var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
@@ -201,13 +201,13 @@ final class ExclusiveOutput {
         return value.takeRetainedValue() as String
     }
 
-    static func uid(of id: AudioDeviceID) -> String? { string(id, kAudioDevicePropertyDeviceUID) }
+    nonisolated static func uid(of id: AudioDeviceID) -> String? { string(id, kAudioDevicePropertyDeviceUID) }
 
-    static func deviceID(forUID uid: String) -> AudioDeviceID? {
+    nonisolated static func deviceID(forUID uid: String) -> AudioDeviceID? {
         outputDevices().first { $0.uid == uid }?.id
     }
 
-    static func defaultOutputDevice() -> AudioDeviceID? {
+    nonisolated static func defaultOutputDevice() -> AudioDeviceID? {
         var addr = address(kAudioHardwarePropertyDefaultOutputDevice)
         var id: AudioDeviceID = 0
         var size = UInt32(MemoryLayout<AudioDeviceID>.size)
@@ -215,9 +215,9 @@ final class ExclusiveOutput {
         return id
     }
 
-    private static func deviceExists(_ id: AudioDeviceID) -> Bool { uid(of: id) != nil }
+    nonisolated static func deviceExists(_ id: AudioDeviceID) -> Bool { uid(of: id) != nil }
 
-    static func nominalRate(_ id: AudioDeviceID) -> Double {
+    nonisolated static func nominalRate(_ id: AudioDeviceID) -> Double {
         var addr = address(kAudioDevicePropertyNominalSampleRate)
         var rate: Float64 = 0
         var size = UInt32(MemoryLayout<Float64>.size)
@@ -226,7 +226,7 @@ final class ExclusiveOutput {
     }
 
     @discardableResult
-    private static func setNominalRate(_ id: AudioDeviceID, _ rate: Double) -> Bool {
+    private nonisolated static func setNominalRate(_ id: AudioDeviceID, _ rate: Double) -> Bool {
         var addr = address(kAudioDevicePropertyNominalSampleRate)
         var value: Float64 = rate
         return AudioObjectSetPropertyData(id, &addr, 0, nil, UInt32(MemoryLayout<Float64>.size), &value) == noErr
@@ -234,7 +234,7 @@ final class ExclusiveOutput {
 
     /// 设备支持的采样率里挑一个：有一模一样的就用它；没有就用能整除的（88.2k 的歌放到 176.4k）；
     /// 再不行就用比它高的里面最低的，都比它低就用最高的
-    static func bestRate(for rate: Double, on id: AudioDeviceID) -> Double? {
+    nonisolated static func bestRate(for rate: Double, on id: AudioDeviceID) -> Double? {
         var addr = address(kAudioDevicePropertyAvailableNominalSampleRates)
         var size: UInt32 = 0
         guard AudioObjectGetPropertyDataSize(id, &addr, 0, nil, &size) == noErr, size > 0 else { return nil }
@@ -247,7 +247,7 @@ final class ExclusiveOutput {
     }
 
     /// 独占（Hog Mode）：写入自己的进程号就占住；再写 -1 还回去
-    private static func setHog(_ id: AudioDeviceID, take: Bool) {
+    private nonisolated static func setHog(_ id: AudioDeviceID, take: Bool) {
         var addr = address(kAudioDevicePropertyHogMode)
         var owner: pid_t = -1
         var size = UInt32(MemoryLayout<pid_t>.size)
@@ -264,7 +264,7 @@ final class ExclusiveOutput {
         }
     }
 
-    static func hogOwner(_ id: AudioDeviceID) -> pid_t {
+    nonisolated static func hogOwner(_ id: AudioDeviceID) -> pid_t {
         var addr = address(kAudioDevicePropertyHogMode)
         var owner: pid_t = -1
         var size = UInt32(MemoryLayout<pid_t>.size)

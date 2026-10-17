@@ -65,6 +65,10 @@ final class PlayerController {
 
     var current: Track? { queue.indices.contains(index) ? queue[index] : nil }
 
+    /// 音频链路面板用：播放器音量（1 = 100%，不做数字音量）和正在输出到的设备（nil = 系统默认）
+    var outputVolume: Float { player.volume }
+    var outputDeviceUID: String? { player.audioOutputDeviceUniqueID }
+
     var upNext: Track? {
         guard !queue.isEmpty else { return nil }
         if repeatMode == .one { return current }
