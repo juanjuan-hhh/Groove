@@ -17,8 +17,8 @@ final class FloatingBall {
         let saved = UserDefaults.standard.double(forKey: sizeKey)
         return saved > 0 ? min(sizeRange.upperBound, max(sizeRange.lowerBound, saved)) : defaultSize
     }
-    /// 贴边藏起一半时缩小到这么大（按比例，默认 96 → 66）
-    static var tuckedSize: CGFloat { (size * 66 / 96).rounded() }
+    /// 贴边藏起一半时的大小：和完整的球一样大
+    static var tuckedSize: CGFloat { size }
     /// 现在球画多大（藏起一半时变小），界面跟着它变
     private(set) var ballSize: CGFloat = FloatingBall.size
     /// 球的大小相对默认的比例，歌词条按它一起缩放
@@ -138,6 +138,7 @@ final class FloatingBall {
 
     private func hideBall() {
         guard let panel, panel.isVisible else { return }
+        closeQueue()
         cancelTuck()
         removeMouseMonitor()
         UserDefaults.standard.set(NSStringFromPoint((tucked ? shownFrame : nil)?.origin ?? panel.frame.origin),
@@ -509,6 +510,76 @@ final class FloatingBall {
         return menu
     }
 
+    // MARK: 播放队列（单击球显示）
+
+    @ObservationIgnored private var queuePanel: NSPanel?
+    @ObservationIgnored private var queueMonitors: [Any] = []
+
+    func toggleQueue() {
+        if let queuePanel, queuePanel.isVisible { closeQueue() } else { showQueue() }
+    }
+
+    private func showQueue() {
+        guard let panel, let player = menuPlayer else { return }
+        let queue = queuePanel ?? makeQueuePanel(player: player)
+        queuePanel = queue
+        // 放在球朝屏幕里面的那一边，上下尽量和球对齐，不出屏幕
+        let ball = tucked ? (shownFrame ?? panel.frame) : panel.frame
+        let size = queue.frame.size
+        let area = (panel.screen ?? NSScreen.main)?.visibleFrame ?? ball
+        var x = lyricSide(for: ball) ? ball.minX - 10 - size.width : ball.maxX + 10
+        var y = ball.midY - size.height / 2
+        x = min(max(x, area.minX + 8), area.maxX - size.width - 8)
+        y = min(max(y, area.minY + 8), area.maxY - size.height - 8)
+        queue.setFrameOrigin(NSPoint(x: x, y: y))
+        queue.orderFrontRegardless()
+        cancelTuck()
+        // 点队列外面（包括别的 App）就收起来
+        let close: (NSEvent) -> Void = { event in
+            MainActor.assumeIsolated {
+                let ball = FloatingBall.shared
+                guard let q = ball.queuePanel, q.isVisible else { return }
+                if event.window === q || event.window === ball.panel { return }
+                ball.closeQueue()
+            }
+        }
+        if queueMonitors.isEmpty {
+            if let m = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown], handler: close) {
+                queueMonitors.append(m)
+            }
+            if let m = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown], handler: { close($0); return $0 }) {
+                queueMonitors.append(m)
+            }
+        }
+    }
+
+    func closeQueue() {
+        queuePanel?.orderOut(nil)
+        queueMonitors.forEach(NSEvent.removeMonitor)
+        queueMonitors = []
+        if !hovering { scheduleTuck(after: 0.8) }
+    }
+
+    private func makeQueuePanel(player: PlayerController) -> NSPanel {
+        let window = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 320, height: 420),
+                             styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        window.level = .floating
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.hasShadow = true
+        window.hidesOnDeactivate = false
+        window.isReleasedWhenClosed = false
+        let host = NSHostingView(rootView: QueueView()
+            .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous).stroke(Theme.line, lineWidth: 1))
+            .environment(player)
+            .modifier(ThemedAppearance()))
+        host.frame = NSRect(x: 0, y: 0, width: 320, height: 420)
+        window.contentView = host
+        return window
+    }
+
     // MARK: 歌词条
 
     var lyricWidth: CGFloat { 320 * lyricScale }
@@ -550,6 +621,10 @@ final class FloatingBall {
                             display: false)
     }
 
+    func setLyricClickable(_ on: Bool) {
+        lyricPanel?.ignoresMouseEvents = !on
+    }
+
     private func makeLyricPanel(player: PlayerController) -> NSPanel {
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: lyricWidth, height: lyricHeight),
                             styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -558,7 +633,8 @@ final class FloatingBall {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
-        panel.ignoresMouseEvents = true
+        // 双击歌词胶囊回主窗口；胶囊外面是透明的，点击会穿过去
+        panel.ignoresMouseEvents = false
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
         let host = NSHostingView(rootView: FloatingLyricView().environment(player).modifier(ThemedAppearance()))
@@ -714,9 +790,10 @@ struct FloatingBallView: View {
         .frame(width: size, height: size)
         .clipShape(Circle())
         .contentShape(Circle())
-        // 拖动在 FloatingBall 里按鼠标事件处理；双击回主窗口
-        .onTapGesture(count: 2) { FloatingBall.shared.exit() }
-        .help(player.current.map { "\($0.title) — \($0.artist)\n双击回到主窗口" } ?? "双击回到主窗口")
+        // 拖动在 FloatingBall 里按鼠标事件处理；单击空白处显示播放队列（等双击时间过了才算单击），双击回主窗口
+        .gesture(TapGesture(count: 2).onEnded { FloatingBall.shared.exit() }
+            .exclusively(before: TapGesture().onEnded { FloatingBall.shared.toggleQueue() }))
+        .help(player.current.map { "\($0.title) — \($0.artist)\n单击显示播放队列，双击回到主窗口" } ?? "双击回到主窗口")
     }
 
     /// 藏起一半时的样子（和 App 图标一样的配色）：不显示封面；
@@ -890,11 +967,17 @@ private struct FloatingLyricView: View {
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 18 * s, style: .continuous))
+        // 双击胶囊回主窗口
+        .contentShape(RoundedRectangle(cornerRadius: 18 * s, style: .continuous))
+        .onTapGesture(count: 2) { FloatingBall.shared.exit() }
+        .allowsHitTesting(visible)
         .animation(.easeInOut(duration: 0.35), value: line)
         // 贴着球那一边对齐，长度跟着歌词变，最长到整个歌词条；上下居中对齐球
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: ball.lyricOnLeft ? .trailing : .leading)
         .opacity(visible ? 1 : 0)
         .animation(.easeInOut(duration: 0.2), value: visible)
+        // 胶囊不显示时整条歌词窗口都不接鼠标，不挡后面的东西
+        .onChange(of: visible, initial: true) { _, shown in FloatingBall.shared.setLyricClickable(shown) }
     }
 
     /// 当前这一句；没有逐句歌词时为空（不显示歌词条）
