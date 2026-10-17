@@ -122,11 +122,6 @@ final class AppBackground {
         return profile.map { max(dim, Self.needed(brightness: $0, dark: dark)) }
     }
 
-    /// 是不是有地方比「透明度」设的值压得更浓（调整卡片里提示一句）
-    func isBoosted(dark: Bool) -> Bool {
-        profile.contains { Self.needed(brightness: $0, dark: dark) > dim + 0.01 }
-    }
-
     /// 这块亮度的图片上面，至少盖多浓的底色：深色外观盖黑色，盖完亮度不超过 0.38；
     /// 浅色外观盖暖白色（亮度约 0.97），盖完亮度不低于 0.8
     private static func needed(brightness l: Double, dark: Bool) -> Double {
@@ -202,7 +197,6 @@ final class AppBackground {
 /// 调整背景图模糊、透明度的小卡片（和悬浮球「调大小」卡片一个样子）
 private struct BackgroundAdjustView: View {
     @Bindable private var background = AppBackground.shared
-    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -220,11 +214,6 @@ private struct BackgroundAdjustView: View {
                 label: "\(Int(background.blur.rounded()))")
             row("透明度", value: $background.dim, range: AppBackground.dimRange,
                 label: "\(Int((background.dim * 100).rounded()))%")
-            // 一直占着位置（卡片大小不变），需要时才显示
-            Text("图片太亮或太暗的地方已自动调整，保证文字看得清")
-                .font(.ui(11))
-                .foregroundStyle(Theme.text2)
-                .opacity(background.isBoosted(dark: colorScheme == .dark) ? 1 : 0)
             HStack {
                 Button {
                     background.blur = AppBackground.defaultBlur
