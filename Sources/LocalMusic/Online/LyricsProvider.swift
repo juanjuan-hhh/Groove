@@ -27,7 +27,7 @@ enum LyricsProvider {
     }
 
     /// 很多中文 .lrc 是 GBK 编码，UTF-8 读不出来时再试 GB18030
-    private static func decode(_ data: Data) -> String? {
+    static func decode(_ data: Data) -> String? {
         if let s = String(data: data, encoding: .utf8) { return s }
         let gb = CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue))
         if let s = String(data: data, encoding: String.Encoding(rawValue: gb)) { return s }

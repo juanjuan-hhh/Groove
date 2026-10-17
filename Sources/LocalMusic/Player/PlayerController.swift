@@ -2,6 +2,7 @@ import AppKit
 import AVFoundation
 import MediaPlayer
 import Observation
+import UniformTypeIdentifiers
 
 enum RepeatMode: Int, CaseIterable {
     case all, one, off
@@ -641,6 +642,26 @@ final class PlayerController {
     func applyManualCover(_ data: Data, for track: Track) async {
         OnlineMedia.saveManualCover(data, for: track)
         await refreshCover(for: track)
+    }
+
+    /// 「自定义封面…」：选一张本地图片，之后一直优先用它（删除封面可以恢复原来的）
+    func chooseCustomCover(for track: Track) {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.image]
+        panel.message = "选一张图片当「\(track.title)」的封面"
+        guard panel.runModal() == .OK, let url = panel.url,
+              let data = try? Data(contentsOf: url), NSImage(data: data) != nil else { return }
+        Task { await applyManualCover(data, for: track) }
+    }
+
+    /// 「导入本地歌词…」：选一个 .lrc / .txt 文件，复制一份进 App，之后一直优先用它
+    func importLocalLyrics(for track: Track) {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [UTType(filenameExtension: "lrc"), .plainText].compactMap { $0 }
+        panel.message = "选一个歌词文件（.lrc 或 .txt）给「\(track.title)」"
+        guard panel.runModal() == .OK, let url = panel.url,
+              let data = try? Data(contentsOf: url), let text = LyricsProvider.decode(data), !text.isBlank else { return }
+        applyManualLyrics(text.replacingOccurrences(of: "\u{FEFF}", with: ""), for: track)
     }
 
     /// 删除 App 下载/选择的歌词（不动音乐文件），然后按顺序重新找本地的

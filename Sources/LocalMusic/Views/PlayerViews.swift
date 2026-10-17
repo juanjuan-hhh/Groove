@@ -324,6 +324,8 @@ struct NowPlayingView: View {
                     }
                     Button("联网搜索封面和歌词…") { player.openOnlineSearch() }
                     if let track = player.current {
+                        Button("自定义封面…") { player.chooseCustomCover(for: track) }
+                        Button("导入本地歌词…") { player.importLocalLyrics(for: track) }
                         Button("删除歌词（仅删除 App 下载数据）") { Task { await player.deleteOnlineLyrics(for: track) } }
                             .disabled(player.lyricsSource != .online && player.lyricsSource != .manual)
                         Button("删除封面（仅删除 App 下载数据）") { Task { await player.deleteOnlineCover(for: track) } }
