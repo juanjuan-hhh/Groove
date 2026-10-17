@@ -150,6 +150,8 @@ final class FloatingBall {
 
     private func hideBall() {
         guard let panel, panel.isVisible else { return }
+        backdropTimer?.invalidate()
+        backdropTimer = nil
         closeQueue()
         cancelTuck()
         removeMouseMonitor()
@@ -274,6 +276,9 @@ final class FloatingBall {
     @ObservationIgnored private var tucked = false
     /// 藏起一半时贴在哪边（界面据此改成「半圆进度 + 播放状态」），露出来时为 nil
     private(set) var tuckedEdge: DockEdge?
+    /// 藏起一半时球后面是不是浅色的（浅色 → 进度环、音柱用黑色；深色 → 白色）
+    private(set) var backdropIsLight = false
+    @ObservationIgnored private var backdropTimer: Timer?
     @ObservationIgnored private var tuckTask: Task<Void, Never>?
 
     func pointerEntered() {
@@ -333,6 +338,18 @@ final class FloatingBall {
     private func slide(to frame: NSRect?, tucked: Bool) {
         guard let panel, let frame else { return }
         self.tucked = tucked
+        // 藏着的时候每 2 秒看一眼球后面（主窗口挪过来、换了桌面之类），露出来就不用看了
+        backdropTimer?.invalidate()
+        backdropTimer = nil
+        if tucked {
+            updateBackdrop(for: frame)
+            backdropTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { _ in
+                MainActor.assumeIsolated {
+                    let ball = FloatingBall.shared
+                    if let frame = ball.panel?.frame { ball.updateBackdrop(for: frame) }
+                }
+            }
+        }
         // 藏起一半时底是半透明的，窗口阴影会从底下透出来变成一块灰，所以先关掉阴影
         panel.hasShadow = !tucked
         withAnimation(.easeInOut(duration: 0.22)) {
@@ -526,6 +543,59 @@ final class FloatingBall {
         menu.addItem(.separator())
         menu.addItem(item("关闭悬浮球") { FloatingBall.shared.close() })
         return menu
+    }
+
+    // MARK: 球后面是深色还是浅色
+
+    /// 看球后面是什么：Groove 自己的主窗口在后面就按它的底色（深色 / 浅色外观）；
+    /// 不然看桌面壁纸上球所在那一小块的亮度。别的 App 的窗口看不到（那要「屏幕录制」权限），只能按壁纸算
+    func updateBackdrop(for frame: NSRect) {
+        let light: Bool
+        if let main = NSApp.windows.first(where: { !($0 is NSPanel) && $0.isVisible && $0.canBecomeMain && !$0.isMiniaturized }),
+           main.frame.intersects(frame) {
+            light = !(main.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua)
+        } else if let screen = panel?.screen ?? NSScreen.main, let lum = Self.wallpaperBrightness(behind: frame, on: screen) {
+            light = lum > 0.55
+        } else {
+            light = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) != .darkAqua
+        }
+        if light != backdropIsLight {
+            withAnimation(.easeInOut(duration: 0.3)) { backdropIsLight = light }
+        }
+    }
+
+    /// 缩小的壁纸（按文件缓存），算亮度用
+    @ObservationIgnored private static var wallpaperCache: (url: URL, image: CGImage)?
+
+    private static func wallpaperBrightness(behind frame: NSRect, on screen: NSScreen) -> Double? {
+        guard let url = NSWorkspace.shared.desktopImageURL(for: screen) else { return nil }
+        let image: CGImage
+        if let cached = wallpaperCache, cached.url == url {
+            image = cached.image
+        } else {
+            guard let data = try? Data(contentsOf: url), let small = ArtworkProvider.downsample(data, maxPixel: 256) else { return nil }
+            wallpaperCache = (url, small)
+            image = small
+        }
+        // 壁纸默认「填充屏幕」：按比例放大铺满，多出来的两边（或上下）裁掉
+        let sf = screen.frame
+        let iw = Double(image.width), ih = Double(image.height)
+        let scale = max(sf.width / iw, sf.height / ih)
+        let offX = (iw * scale - sf.width) / 2, offY = (ih * scale - sf.height) / 2
+        let r = frame.intersection(sf)
+        guard !r.isNull, r.width > 0 else { return nil }
+        // 屏幕坐标（左下为原点）→ 图片像素（左上为原点）
+        let x0 = (r.minX - sf.minX + offX) / scale, x1 = (r.maxX - sf.minX + offX) / scale
+        let y0 = (sf.maxY - r.maxY + offY) / scale, y1 = (sf.maxY - r.minY + offY) / scale
+        let crop = CGRect(x: x0, y: y0, width: max(1, x1 - x0), height: max(1, y1 - y0)).integral
+        guard let piece = image.cropping(to: crop) else { return nil }
+        var px = [UInt8](repeating: 0, count: 4)
+        guard let ctx = CGContext(data: &px, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                                  space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        ctx.interpolationQuality = .medium
+        ctx.draw(piece, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+        return (0.2126 * Double(px[0]) + 0.7152 * Double(px[1]) + 0.0722 * Double(px[2])) / 255
     }
 
     // MARK: 播放队列（单击球显示）
@@ -752,6 +822,8 @@ struct FloatingBallView: View {
     @State private var coverTint: Color?
     /// 进度环颜色：封面外圈深就用白色，浅就用黑色
     @State private var ringColor: Color = .white
+    /// 藏起一半时进度环、音柱的颜色：不跟封面，跟球后面的深浅走（后面浅就用黑色，深就用白色）
+    private var tuckColor: Color { FloatingBall.shared.backdropIsLight ? .black : .white }
 
     var body: some View {
         let fraction = player.duration > 0 ? min(1, player.currentTime / player.duration) : 0
@@ -835,18 +907,18 @@ struct FloatingBallView: View {
         // 贴右边时露出左半边，进度从顶部沿左边走到底部；贴左边时反过来
         let mirror: CGFloat = edge == .right ? -1 : 1
         return ZStack {
-            halfArc(to: 1, color: ringColor.opacity(0.25), width: ring, inset: ringInset, mirror: mirror)
-            halfArc(to: fraction, color: ringColor, width: ring, inset: ringInset, mirror: mirror)
-            progressKnob(angle: .pi * max(0, min(1, fraction)), mirror: mirror)
+            halfArc(to: 1, color: tuckColor.opacity(0.25), width: ring, inset: ringInset, mirror: mirror)
+            halfArc(to: fraction, color: tuckColor, width: ring, inset: ringInset, mirror: mirror)
+            progressKnob(angle: .pi * max(0, min(1, fraction)), mirror: mirror, color: tuckColor)
                 .opacity(fraction > 0.01 ? 1 : 0)
 
             Group {
                 if player.isPlaying {
-                    EqualizerBars(color: ringColor)
+                    EqualizerBars(color: tuckColor)
                 } else {
                     Image(systemName: "play.fill")
                         .font(.system(size: 17, weight: .bold))
-                        .foregroundStyle(ringColor)
+                        .foregroundStyle(tuckColor)
                 }
             }
             .scaleEffect(size / 80)   // 球缩小了，音柱和三角也跟着小一点
@@ -868,10 +940,10 @@ struct FloatingBallView: View {
     }
 
     /// 进度头上的圆点（像 App 图标进度环末端那个）；angle 从正上方顺时针算
-    private func progressKnob(angle: Double, mirror: CGFloat = 1) -> some View {
+    private func progressKnob(angle: Double, mirror: CGFloat = 1, color: Color? = nil) -> some View {
         let r = size / 2 - ringInset
         return Circle()
-            .fill(ringColor)
+            .fill(color ?? ringColor)
             .frame(width: knob, height: knob)
             .offset(x: mirror * r * CGFloat(sin(angle)), y: -r * CGFloat(cos(angle)))
     }
