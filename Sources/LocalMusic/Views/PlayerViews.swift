@@ -807,55 +807,7 @@ struct LyricOffsetBar: View {
                 .buttonStyle(.plain)
                 .help("调好了，收起（每次调整当时就已保存）")
             }
-            autoAlignRow
         }
-    }
-
-    /// 「自动对齐」按钮和结果（撤销 / 仍然使用估计）
-    private var autoAlignRow: some View {
-        HStack(spacing: 8) {
-            Button { player.autoAlignLyrics() } label: {
-                HStack(spacing: 5) {
-                    if player.alignState == .running {
-                        ProgressView().controlSize(.mini)
-                    } else {
-                        Image(systemName: "waveform.badge.magnifyingglass").font(.system(size: 11, weight: .bold))
-                    }
-                    Text(player.alignState == .running ? "正在听人声…" : "自动对齐").font(.ui(12, .bold))
-                }
-                .foregroundStyle(Theme.ink)
-                .padding(.horizontal, 12)
-                .frame(height: 26)
-                .background(Capsule().fill(Theme.mustard))
-                .contentShape(Capsule())
-            }
-            .buttonStyle(.plain)
-            .disabled(player.alignState == .running)
-            .help("从音频里找出人声开始的位置，自动算出歌词该提前还是延后（几秒钟）")
-
-            switch player.alignState {
-            case .done(let message):
-                Text(message).font(.ui(11, .semibold)).foregroundStyle(Theme.text2).lineLimit(1)
-                if player.alignUndo != nil {
-                    linkButton("撤销") { player.undoAutoAlign() }
-                } else if player.alignGuess != nil {
-                    linkButton("仍然使用") { player.applyAlignGuess() }
-                }
-            case .running:
-                Text("大约要几秒").font(.ui(11)).foregroundStyle(Theme.text3)
-            case .idle:
-                Text("自动对齐前请先检查歌词版本是否一致")
-                    .font(.ui(11))
-                    .foregroundStyle(Theme.text3)
-            }
-        }
-    }
-
-    private func linkButton(_ title: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title).font(.ui(11, .bold)).foregroundStyle(Theme.accent).underline()
-        }
-        .buttonStyle(.plain)
     }
 
     private func barButton(_ title: String, icon: String, leading: Bool, action: @escaping () -> Void) -> some View {
