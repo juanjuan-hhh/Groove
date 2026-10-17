@@ -336,6 +336,12 @@ final class PlayerController {
 
     func resume() {
         guard player.currentItem != nil else { return }
+        // 这首已经出错（比如输出设备拔掉过）：重新载入再放
+        if player.currentItem?.status == .failed {
+            recoverAttempts = 0
+            reloadItem(autoplay: true)
+            return
+        }
         if let track = current {
             prepareOutput(for: track)
             // 暂停太久设备被还回去了，再占的时候 DoP 用不了（比如被别的 App 占了）：改成 PCM 接着放
@@ -389,7 +395,10 @@ final class PlayerController {
             pendingRestoreTime = nil
             if abs(time.seconds - target) > 1 { seek(to: target); return }
         }
-        if time.seconds.isFinite { currentTime = time.seconds }
+        if time.seconds.isFinite {
+            if isPlaying, time.seconds > currentTime + 0.1 { recoverAttempts = 0 }
+            currentTime = time.seconds
+        }
         if sessionDirty { saveQueue() }
         if isPlaying, abs(currentTime - lastSavedTime) >= 5 { savePosition() }
         if let d = player.currentItem?.duration.seconds, d.isFinite, d > 0, abs(d - duration) > 0.5 {
@@ -444,7 +453,23 @@ final class PlayerController {
         let item = makeRawItem(for: track)
         // 不要任何空间音频之类的系统处理，原样输出
         item.allowedAudioSpatializationFormats = []
+        // 放着放着出错了（最常见：输出设备被拔掉，这首歌就一直卡在「失败」，再怎么按播放都没反应）：自动重新载入
+        itemStatusObserver = item.observe(\.status) { [weak self] item, _ in
+            guard item.status == .failed else { return }
+            Task { @MainActor in self?.recoverFailedItem(item) }
+        }
         return item
+    }
+
+    @ObservationIgnored private var itemStatusObserver: NSKeyValueObservation?
+    /// 连续自动重新载入的次数（文件本身坏了时不会一直重试）；放出声音以后清零
+    @ObservationIgnored private var recoverAttempts = 0
+
+    /// 当前这首出错了：按现在能用的输出设备重新载入，接着原来的位置；原来在放就接着放
+    private func recoverFailedItem(_ item: AVPlayerItem) {
+        guard item === player.currentItem, recoverAttempts < 2 else { return }
+        recoverAttempts += 1
+        reloadItem(autoplay: isPlaying)
     }
 
     private func makeRawItem(for track: Track) -> AVPlayerItem {
