@@ -42,6 +42,16 @@ final class FloatingBall {
     static let wallpaperColorKey = "floatingBallWallpaperColor"
     static var wallpaperColor: Bool { UserDefaults.standard.bool(forKey: wallpaperColorKey) }
 
+    /// 「贴边颜色」：贴边半圆球上的进度环、圆点、音柱用什么颜色。
+    /// auto 按球后面的深浅自动选；有些壁纸读不到（比如「照片」App 设的壁纸），自动会选错，就手动定成白色或黑色
+    static let tuckColorKey = "floatingBallTuckColor"
+    static var tuckColor: String { UserDefaults.standard.string(forKey: tuckColorKey) ?? "auto" }
+
+    func setTuckColor(_ value: String) {
+        UserDefaults.standard.set(value, forKey: Self.tuckColorKey)
+        if let frame = panel?.frame { updateBackdrop(for: frame) }
+    }
+
     func setWallpaperColor(_ on: Bool) {
         UserDefaults.standard.set(on, forKey: Self.wallpaperColorKey)
         Self.wallpaperCache = nil
@@ -548,7 +558,14 @@ final class FloatingBall {
         menu.addItem(item("自动贴边", checked: Self.autoDock) {
             FloatingBall.shared.setAutoDock(!FloatingBall.autoDock)
         })
-        menu.addItem(item("系统壁纸取色", checked: Self.wallpaperColor) {
+        let colorItem = NSMenuItem(title: "贴边颜色", action: nil, keyEquivalent: "")
+        let colorMenu = NSMenu()
+        for (value, label) in [("auto", "自动"), ("white", "白色（深色壁纸用）"), ("black", "黑色（浅色壁纸用）")] {
+            colorMenu.addItem(item(label, checked: Self.tuckColor == value) { FloatingBall.shared.setTuckColor(value) })
+        }
+        colorItem.submenu = colorMenu
+        menu.addItem(colorItem)
+        menu.addItem(item("系统壁纸取色", checked: Self.wallpaperColor, enabled: Self.tuckColor == "auto") {
             FloatingBall.shared.setWallpaperColor(!FloatingBall.wallpaperColor)
         })
         menu.addItem(item("一直显示悬浮球", checked: Self.alwaysOn) {
@@ -565,7 +582,10 @@ final class FloatingBall {
     /// 不然看桌面壁纸上球所在那一小块的亮度。别的 App 的窗口看不到（那要「屏幕录制」权限），只能按壁纸算
     func updateBackdrop(for frame: NSRect) {
         let light: Bool
-        if let main = NSApp.windows.first(where: { !($0 is NSPanel) && $0.isVisible && $0.canBecomeMain && !$0.isMiniaturized }),
+        if Self.tuckColor != "auto" {
+            // 手动定了颜色：白色是给深色背景用的
+            light = Self.tuckColor == "black"
+        } else if let main = NSApp.windows.first(where: { !($0 is NSPanel) && $0.isVisible && $0.canBecomeMain && !$0.isMiniaturized }),
            main.frame.intersects(frame) {
             light = !(main.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua)
         } else if let screen = panel?.screen ?? NSScreen.main, let lum = Self.wallpaperBrightness(behind: frame, on: screen) {
