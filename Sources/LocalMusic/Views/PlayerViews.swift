@@ -383,6 +383,7 @@ struct NowPlayingView: View {
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
                 .fixedSize()
+                .iconBacking(31)
             }
         }
     }

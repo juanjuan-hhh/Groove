@@ -233,6 +233,7 @@ struct TopBar: View {
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .fixedSize()
+            .iconBacking(27)
             .help("设置")
 
             // 最右边：打开 / 关闭悬浮球（正在播放页也在右上角放了一个）
@@ -284,6 +285,7 @@ private struct AppearanceToggle: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .iconBacking(27)
         .help(scheme == .dark ? "切换到浅色" : "切换到深色")
     }
 

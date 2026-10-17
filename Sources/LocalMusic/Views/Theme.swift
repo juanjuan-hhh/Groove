@@ -136,6 +136,28 @@ struct ThemeDivider: View {
     }
 }
 
+/// 用了自定义背景图时给图标按钮垫一个小的半透明圆底（深色外观垫黑、浅色外观垫白），
+/// 背景是橙色、红色之类的图时按钮也看得出来；颜色不变，没用背景图时什么都不加
+struct IconBacking: ViewModifier {
+    let diameter: CGFloat
+    @Environment(\.colorScheme) private var scheme
+
+    func body(content: Content) -> some View {
+        content.background {
+            if Theme.hasBackgroundImage {
+                Circle()
+                    .fill(scheme == .dark ? Color.black.opacity(0.35) : Color.white.opacity(0.55))
+                    .frame(width: diameter, height: diameter)
+                    .allowsHitTesting(false)
+            }
+        }
+    }
+}
+
+extension View {
+    func iconBacking(_ diameter: CGFloat) -> some View { modifier(IconBacking(diameter: diameter)) }
+}
+
 /// 纯色胶囊里的一段文字（Porthole 的标题 / 标签样式）
 struct ChipText: View {
     let text: String

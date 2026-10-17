@@ -81,6 +81,7 @@ struct IconButton: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .iconBacking(size + 14)
         .help(help)
     }
 }
@@ -129,6 +130,7 @@ struct SleepTimerMenu: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
+        .iconBacking(size + 14)
         .help("睡眠定时")
     }
 }

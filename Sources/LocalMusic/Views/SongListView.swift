@@ -144,6 +144,7 @@ struct SongListView: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
+        .iconBacking(29)
         .help("排序")
     }
 
