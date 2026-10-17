@@ -541,6 +541,8 @@ final class FloatingBall {
         guard let panel, let player = menuPlayer else { return }
         let queue = queuePanel ?? makeQueuePanel(player: player)
         queuePanel = queue
+        // 每次打开都换一个新的列表，重新滚到正在放的那首
+        queue.contentView = makeQueueHost(player: player)
         // 放在球朝屏幕里面的那一边，上下尽量和球对齐，不出屏幕
         let ball = tucked ? (shownFrame ?? panel.frame) : panel.frame
         let size = queue.frame.size
@@ -588,14 +590,18 @@ final class FloatingBall {
         window.hasShadow = true
         window.hidesOnDeactivate = false
         window.isReleasedWhenClosed = false
+        window.contentView = makeQueueHost(player: player)
+        return window
+    }
+
+    private func makeQueueHost(player: PlayerController) -> NSView {
         let host = NSHostingView(rootView: QueueView()
             .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous).stroke(Theme.line, lineWidth: 1))
             .environment(player)
             .modifier(ThemedAppearance()))
         host.frame = NSRect(x: 0, y: 0, width: 320, height: 420)
-        window.contentView = host
-        return window
+        return host
     }
 
     // MARK: 歌词条

@@ -162,7 +162,7 @@ struct QueueView: View {
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(Array(player.queue.enumerated()), id: \.offset) { i, track in
-                            HStack(spacing: 8) {
+                            QueueRow { HStack(spacing: 8) {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(track.title)
                                         .font(.ui(13, i == player.index ? .bold : .medium))
@@ -184,6 +184,7 @@ struct QueueView: View {
                             }
                             .padding(.horizontal, 12)
                             .padding(.vertical, 6)
+                            }
                             .contentShape(Rectangle())
                             .onTapGesture { player.jump(to: i) }
                             .id(i)
@@ -195,6 +196,22 @@ struct QueueView: View {
         }
         .frame(width: 320, height: 420)
         .background(Theme.card)
+    }
+}
+
+/// 队列里的一行：鼠标放上去时浅浅地高亮（半选中）
+private struct QueueRow<Content: View>: View {
+    @ViewBuilder let content: () -> Content
+    @State private var hovering = false
+
+    var body: some View {
+        content()
+            .background {
+                RoundedRectangle(cornerRadius: Theme.rowRadius, style: .continuous)
+                    .fill(Theme.surface.opacity(hovering ? 0.8 : 0))
+                    .padding(.horizontal, 6)
+            }
+            .onHover { hovering = $0 }
     }
 }
 
