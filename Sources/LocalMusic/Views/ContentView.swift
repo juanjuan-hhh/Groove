@@ -249,7 +249,7 @@ private struct OutputMenuItems: View {
             Text("跟随系统").tag("")
             ForEach(output.devices) { Text($0.name).tag($0.uid) }
         }
-        Toggle("独占输出（外接解码器用）", isOn: Binding(get: { output.enabled }, set: { on in
+        Toggle("独占输出", isOn: Binding(get: { output.enabled }, set: { on in
             output.setEnabled(on)
             if on { ExclusiveVolumeWarning.showIfNeeded() }
         }))
