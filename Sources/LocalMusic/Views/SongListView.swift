@@ -38,6 +38,7 @@ struct SongListView: View {
 
     @Environment(PlayerController.self) private var player
     @Environment(LibraryStore.self) private var library
+    @Environment(\.miniBarHeight) private var miniBarHeight
 
     var body: some View {
         GeometryReader { geo in
@@ -195,7 +196,7 @@ struct SongListView: View {
                     }
                     .buttonStyle(.plain)
                     .padding(.trailing, 40)
-                    .padding(.bottom, 16)
+                    .padding(.bottom, 16 + miniBarHeight)
                     .help("定位到正在播放的歌曲")
                 }
             }

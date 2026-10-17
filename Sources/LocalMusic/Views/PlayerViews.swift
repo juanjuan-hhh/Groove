@@ -3,6 +3,11 @@ import SwiftUI
 
 // MARK: 底部迷你播放条
 
+extension EnvironmentValues {
+    /// 底部播放条的高度：它浮在列表上面（玻璃底），浮在列表右下角的按钮要往上让开这么多
+    @Entry var miniBarHeight: CGFloat = 0
+}
+
 /// 一直显示在底部；还没放歌时显示「未在播放」，点播放键从整个歌曲库开始放
 struct MiniPlayerBar: View {
     @Environment(PlayerController.self) private var player
@@ -45,8 +50,19 @@ struct MiniPlayerBar: View {
                 }
             }
         }
-        // 用了自定义背景图时底栏半透明，和背景连成一片（不再是一整块实心的底色）
-        .background(AppBackground.shared.image == nil ? Theme.card : Theme.card.opacity(0.3))
+        // 玻璃底：把后面滚过去的列表（或背景图）模糊一下，再盖一层半透明的底色，字照样看得清。
+        // 用了自定义背景图时底色更淡，和背景连成一片
+        .background {
+            ZStack {
+                let tint = AppBackground.shared.image == nil ? Theme.card.opacity(0.55) : Theme.card.opacity(0.3)
+                if #available(macOS 26, *) {
+                    Rectangle().fill(.clear).glassEffect(.regular.tint(tint), in: Rectangle())
+                } else {
+                    InWindowBlur()
+                    tint
+                }
+            }
+        }
         .contentShape(Rectangle())
         .onTapGesture { if track != nil { player.showNowPlaying = true } }
         .help(track == nil ? "" : "点击打开正在播放")

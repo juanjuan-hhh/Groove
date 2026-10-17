@@ -18,6 +18,8 @@ struct ContentView: View {
     /// 正在播放页完全盖住歌曲库时为 true（见下面的 onChange）
     @State private var libraryCovered = false
     @Environment(\.colorScheme) private var colorScheme
+    /// 底部播放条的高度（它浮在列表上面，列表底下要让出这么多）
+    @State private var miniBarHeight: CGFloat = 72
 
     var body: some View {
         // 标题栏隐藏后，顶上至少留出红绿灯那一条的高度（系统已经留了就不重复留）
@@ -61,7 +63,7 @@ struct ContentView: View {
                 TopBar(tab: $tab, searchText: $searchText, searchActive: !libraryCovered)
                 Group {
                     if library.folders.isEmpty {
-                        EmptyLibraryView()
+                        EmptyLibraryView().padding(.bottom, miniBarHeight)
                     } else if !searchText.trimmingCharacters(in: .whitespaces).isEmpty {
                         SongListView(tracks: library.search(searchText))
                     } else {
@@ -75,7 +77,14 @@ struct ContentView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                MiniPlayerBar()
+                // 底栏浮在列表上面（玻璃底），列表能滚到它下面、隐约透出来；
+                // 每个列表最底下多留出底栏那么高，滚到底时最后一行不会被挡住
+                .contentMargins(.bottom, miniBarHeight, for: .scrollContent)
+                .environment(\.miniBarHeight, miniBarHeight)
+                .overlay(alignment: .bottom) {
+                    MiniPlayerBar()
+                        .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { miniBarHeight = $0 }
+                }
             }
 
             if let notice = ExclusiveOutput.shared.notice {

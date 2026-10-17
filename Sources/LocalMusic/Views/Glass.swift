@@ -36,6 +36,24 @@ struct GlassBackground: NSViewRepresentable {
     }
 }
 
+/// 窗口里面的毛玻璃：把同一个窗口里压在它下面的内容（比如滚过底栏的列表）模糊掉。
+/// SwiftUI 自带的 Material 在 Mac 上透的是桌面，看不到下面的列表，所以自己包一个
+struct InWindowBlur: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = BlurView()
+        view.material = .headerView
+        view.blendingMode = .withinWindow
+        view.state = .active
+        return view
+    }
+
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
+
+    private final class BlurView: NSVisualEffectView {
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    }
+}
+
 /// 主窗口的毛玻璃底：透出一点桌面壁纸。上面再盖一层半透明的底色（Theme.bg），文字照样看得清。
 struct WindowGlass: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
