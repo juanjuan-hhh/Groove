@@ -223,7 +223,11 @@ struct TopBar: View {
                     Button("恢复默认") { AppBackground.shared.reset() }
                         .disabled(AppBackground.shared.image == nil)
                 }
-                Picker("外观", selection: $appearance) {
+                // 换外观时新样子从窗口中间像圆一样扩散开（见 ThemeReveal）
+                Picker("外观", selection: Binding(get: { appearance }, set: { newValue in
+                    guard newValue != appearance else { return }
+                    ThemeReveal.perform { appearance = newValue }
+                })) {
                     ForEach(AppearanceMode.allCases) { Text($0.label).tag($0) }
                 }
             } label: {
@@ -274,9 +278,8 @@ private struct AppearanceToggle: View {
 
     var body: some View {
         Button {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                mode = scheme == .dark ? .light : .dark
-            }
+            let next: AppearanceMode = scheme == .dark ? .light : .dark
+            ThemeReveal.perform { mode = next }
         } label: {
             Image(systemName: icon)
                 .font(.system(size: 13, weight: .semibold))
