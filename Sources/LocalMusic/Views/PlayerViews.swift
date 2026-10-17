@@ -342,15 +342,6 @@ struct NowPlayingView: View {
                         }
                     }
                     .disabled(!player.hasSyncedLyrics)
-                    // 从音频里找人声，自动算出歌词该提前 / 延后多少；打开歌词调整，结果显示在下面
-                    Button(player.alignState == .running ? "正在自动对齐歌词…" : "自动对齐歌词") {
-                        withAnimation(.easeInOut(duration: 0.25)) {
-                            player.adjustingLyrics = true
-                            player.showLyrics = true
-                        }
-                        player.autoAlignLyrics()
-                    }
-                    .disabled(!player.hasSyncedLyrics || player.alignState == .running)
                     if let track = player.current {
                         Button("在访达中显示") { NSWorkspace.shared.activateFileViewerSelecting([track.url]) }
                     }
@@ -366,12 +357,15 @@ struct NowPlayingView: View {
 
     private func cover(in size: CGSize) -> some View {
         // 封面下面还有：进度环外扩 14×2、间距 30、当前歌词 48、间距 18、格式标签 26，上下再各留 12
-        let side = max(60, min(340, size.height - 176, size.width - 96))
-        return VStack(spacing: 30) {
+        let side = max(60, min(340, size.height - 200, size.width - 96))
+        // 多出来的空间：封面上下各分一点，当前歌词和格式标签放在最下面，靠近下面的按钮和进度条
+        return VStack(spacing: 18) {
+            Spacer(minLength: 0)
             SpinningArtwork(track: player.current, size: side)
                 .overlay { ProgressRing() }
                 .shadow(color: .black.opacity(0.5), radius: 24, y: 10)
                 .onTapGesture { player.showLyrics = true }
+            Spacer(minLength: 12)
             CurrentLyricLine()
                 .onTapGesture { player.showLyrics = true }
             // 格式信息：FLAC · 16bit · 44.1kHz
@@ -383,9 +377,10 @@ struct NowPlayingView: View {
                 }
                 .buttonStyle(.plain)
                 .help("查看音频链路")
-                .padding(.top, -12)
+                .padding(.top, -6)
             }
         }
+        .padding(.bottom, 16)   // 和下面一排按钮隔开
     }
 
     private var functionRow: some View {
@@ -816,8 +811,7 @@ struct LyricOffsetBar: View {
             case .running:
                 Text("大约要几秒").font(.ui(11)).foregroundStyle(Theme.text3)
             case .idle:
-                Text(player.lyricOffset == 0 ? "或者听到正在唱哪句，就点那句歌词"
-                                             : "点歌词可以重新对齐，点中间的字复位")
+                Text("自动对齐前请先检查歌词版本是否一致")
                     .font(.ui(11))
                     .foregroundStyle(Theme.text3)
             }

@@ -6,6 +6,11 @@ struct SignalPathView: View {
     @Environment(PlayerController.self) private var player
     @State private var path: SignalPath?
 
+    /// initial：打开窗口前先同步读好的一份，窗口一出现就是最终大小，不会再长高、跳位置
+    init(initial: SignalPath? = nil) {
+        _path = State(initialValue: initial)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
@@ -44,6 +49,12 @@ struct SignalPathView: View {
                 try? await Task.sleep(for: .seconds(1.5))
             }
         }
+    }
+
+    /// 同步读一次当前链路（打开窗口前用）
+    @MainActor static func readNow(_ player: PlayerController) -> SignalPath? {
+        guard let track = player.current else { return nil }
+        return SignalPath.read(track: track, stream: player.stream, volume: player.outputVolume, deviceUID: player.outputDeviceUID)
     }
 
     private func refresh() async {
