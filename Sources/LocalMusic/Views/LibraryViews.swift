@@ -101,7 +101,6 @@ struct GroupDetailView: View {
                 Spacer()
             }
             .padding(24)
-            ThemeDivider()
             SongListView(tracks: group.tracks)
         }
         .navigationTitle(group.name)
@@ -214,7 +213,6 @@ struct PlaylistDetailView: View {
             }
             .padding(.horizontal, 24)
             .padding(.vertical, 16)
-            ThemeDivider()
             SongListView(tracks: tracks, playlistID: playlistID)
         }
         .navigationTitle(title)

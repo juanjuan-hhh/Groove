@@ -59,7 +59,6 @@ struct ContentView: View {
         ZStack {
             VStack(spacing: 0) {
                 TopBar(tab: $tab, searchText: $searchText, searchActive: !libraryCovered)
-                ThemeDivider()
                 Group {
                     if library.folders.isEmpty {
                         EmptyLibraryView()

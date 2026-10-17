@@ -49,7 +49,6 @@ struct SongListView: View {
     private func content(wide: Bool) -> some View {
         VStack(spacing: 0) {
             header
-            ThemeDivider()
             if wide && !tracks.isEmpty { columnHeader }
             if tracks.isEmpty {
                 VStack(spacing: 8) {
@@ -166,6 +165,13 @@ struct SongListView: View {
                     }
                 }
                 .padding(.bottom, 12)
+            }
+            // 上面没有分隔线了：列表滚上去时在顶边轻轻淡出，不是一刀切
+            .mask {
+                VStack(spacing: 0) {
+                    LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom).frame(height: 14)
+                    Color.black
+                }
             }
             .overlay(alignment: .trailing) {
                 if let sections, sections.count > 1 {
