@@ -34,10 +34,10 @@ struct ContentView: View {
                             .resizable()
                             .scaledToFill()
                             .frame(width: geo.size.width, height: geo.size.height)
-                            .blur(radius: 6)
+                            .blur(radius: AppBackground.shared.blur, opaque: true)
                             .clipped()
                     }
-                    Theme.bg.opacity(0.62)
+                    Theme.bg.opacity(AppBackground.shared.dim)
                 } else {
                     WindowGlass()
                     Theme.bg.opacity(0.72)
@@ -210,9 +210,11 @@ struct TopBar: View {
                 // 悬浮球的其他设置在悬浮球上点右键
                 Toggle("一直显示悬浮球", isOn: Binding(get: { ballAlwaysOn },
                                                     set: { FloatingBall.shared.setAlwaysOn($0, player: player) }))
-                Menu("背景图") {
+                Menu("自定义背景图片") {
                     Button("选择图片…") { AppBackground.shared.choose() }
-                    Button("恢复默认（毛玻璃）") { AppBackground.shared.reset() }
+                    Button("调整模糊和透明度…") { AppBackground.shared.showAdjuster() }
+                        .disabled(AppBackground.shared.image == nil)
+                    Button("恢复默认") { AppBackground.shared.reset() }
                         .disabled(AppBackground.shared.image == nil)
                 }
                 Picker("外观", selection: $appearance) {

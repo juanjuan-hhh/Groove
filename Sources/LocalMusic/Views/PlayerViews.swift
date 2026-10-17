@@ -45,7 +45,8 @@ struct MiniPlayerBar: View {
                 }
             }
         }
-        .background(Theme.card)
+        // 用了自定义背景图时底栏半透明，和背景连成一片（不再是一整块实心的底色）
+        .background(AppBackground.shared.image == nil ? Theme.card : Theme.card.opacity(0.3))
         .contentShape(Rectangle())
         .onTapGesture { if track != nil { player.showNowPlaying = true } }
         .help(track == nil ? "" : "点击打开正在播放")
