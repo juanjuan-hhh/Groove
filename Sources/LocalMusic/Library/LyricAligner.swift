@@ -20,6 +20,10 @@ enum LyricAligner {
         var reliable: Bool
         /// 互相印证的进歌点数
         var support: Int
+        /// 人声听得清不清楚：歌词覆盖的时间里「在唱」概率比外面高多少。太低（伴奏太响盖住人声、
+        /// 或者歌词是别的版本）时估计值没有参考价值
+        var contrast: Double
+        var vocalsClear: Bool { contrast >= 0.3 }
     }
 
     static let searchRange = 15.0
@@ -224,6 +228,6 @@ enum LyricAligner {
             print(String(format: "  entries %d votes %d contrast %.2f margin %.2f support %@ -> %.2f %@", entries.count, top.votes,
                          top.contrast, margin, support.map { String(format: "%.2f", $0) }.joined(separator: " "), shift, reliable ? "OK" : "--"))
         }
-        return Result(shift: shift, reliable: reliable, support: close.count)
+        return Result(shift: shift, reliable: reliable, support: close.count, contrast: top.contrast)
     }
 }

@@ -188,6 +188,11 @@ final class PlayerController {
             }
             let offset = (-result.shift * 10).rounded() / 10
             guard result.reliable else {
+                // 人声都听不清时，估计值基本是乱猜，不给出来免得误导
+                guard result.vocalsClear else {
+                    self.alignState = .done("人声被伴奏盖住或歌词版本不同，没法自动对齐，请手动调整")
+                    return
+                }
                 self.alignGuess = offset
                 self.alignState = .done("没把握，未修改（估计" + Self.offsetText(offset) + "）")
                 return
