@@ -157,3 +157,65 @@ private struct InfoCardView: View {
         .foregroundStyle(Theme.text)
     }
 }
+
+/// 主窗口正中的半透明小提示（如「导入成功」）：淡入，停 2 秒，淡出；不接鼠标，不挡操作
+@MainActor
+enum Toast {
+    private static var panel: NSPanel?
+    private static var hideTask: Task<Void, Never>?
+
+    static func show(_ text: String, icon: String = "checkmark.circle.fill", seconds: Double = 2) {
+        hideTask?.cancel()
+        panel?.orderOut(nil)
+        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 200, height: 60),
+                            styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        panel.level = .floating
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = false
+        panel.ignoresMouseEvents = true
+        panel.hidesOnDeactivate = false
+        panel.isReleasedWhenClosed = false
+        let host = NSHostingView(rootView: ToastView(text: text, icon: icon).modifier(ThemedAppearance()))
+        host.frame = NSRect(origin: .zero, size: host.fittingSize)
+        panel.setContentSize(host.fittingSize)
+        panel.contentView = host
+        self.panel = panel
+        let main = NSApp.windows.first { !($0 is NSPanel) && $0.isVisible && $0.canBecomeMain }
+        let area = main?.frame ?? NSScreen.main?.visibleFrame ?? .zero
+        panel.setFrameOrigin(NSPoint(x: area.midX - panel.frame.width / 2, y: area.midY - panel.frame.height / 2))
+        panel.alphaValue = 0
+        panel.orderFrontRegardless()
+        NSAnimationContext.runAnimationGroup { $0.duration = 0.2; panel.animator().alphaValue = 1 }
+        hideTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(seconds))
+            guard !Task.isCancelled else { return }
+            NSAnimationContext.runAnimationGroup { $0.duration = 0.3; panel.animator().alphaValue = 0 } completionHandler: {
+                MainActor.assumeIsolated { if Toast.panel === panel { panel.orderOut(nil) } }
+            }
+        }
+    }
+}
+
+private struct ToastView: View {
+    let text: String
+    let icon: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon).font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.accent)
+            Text(text).font(.ui(14, .bold)).foregroundStyle(Theme.text)
+        }
+        .fixedSize()
+        .padding(.horizontal, 22)
+        .padding(.vertical, 13)
+        .background {
+            ZStack {
+                GlassBackground(cornerRadius: 22)
+                RoundedRectangle(cornerRadius: 22, style: .continuous).fill(Theme.card.opacity(0.55))
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(Theme.line.opacity(0.6), lineWidth: 1))
+    }
+}

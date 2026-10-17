@@ -669,7 +669,10 @@ final class PlayerController {
         panel.message = "选一张图片当「\(track.title)」的封面"
         guard panel.runModal() == .OK, let url = panel.url,
               let data = try? Data(contentsOf: url), NSImage(data: data) != nil else { return }
-        Task { await applyManualCover(data, for: track) }
+        Task {
+            await applyManualCover(data, for: track)
+            Toast.show("导入成功")
+        }
     }
 
     /// 「导入本地歌词…」：选一个 .lrc / .txt 文件，复制一份进 App，之后一直优先用它
@@ -684,6 +687,8 @@ final class PlayerController {
         // 没有时间轴的歌词照样导入（静态显示），提示一下怎么才能同步
         if LRCParser.parse(clean).first?.time == nil {
             InfoCard.show(icon: "text.alignleft", title: "此歌词无时间轴，仅支持静态显示")
+        } else {
+            Toast.show("导入成功")
         }
     }
 
