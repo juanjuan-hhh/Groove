@@ -5,6 +5,7 @@ struct OnlineCandidate: Identifiable, Sendable {
     enum Source: String, Sendable {
         case kugou = "酷狗"
         case qq = "QQ 音乐"
+        case netease = "网易云"
         case itunes = "iTunes"
     }
 
@@ -13,6 +14,7 @@ struct OnlineCandidate: Identifiable, Sendable {
         case kugouHash(String)       // 酷狗歌曲的 hash，用到时再查歌词
         case kugouID(String, String) // 酷狗歌词的 id + accesskey
         case qqMid(String)           // QQ 音乐的 songmid，用到时再下载歌词
+        case neteaseID(Int)          // 网易云的歌曲 id，用到时再下载歌词
         case text(String)            // 直接给了歌词文本
     }
 
@@ -34,8 +36,17 @@ enum SourceResult: Sendable {
     case failed(String)
 }
 
-/// 「联网搜索」：同时查 酷狗、QQ 音乐、iTunes，列出所有候选让用户自己选
+/// 「联网搜索」：同时查 酷狗、QQ 音乐、网易云、iTunes，列出所有候选让用户自己选
 enum OnlineSearch {
+    static func netease(_ query: String) async -> SourceResult {
+        guard let songs = await OnlineMedia.neteaseSearch(query, count: 12) else { return .failed("连接失败") }
+        return .ok(songs.map { song in
+            OnlineCandidate(source: .netease, title: song.name, artist: song.artists.joined(separator: " / "),
+                            album: song.album, duration: song.duration,
+                            coverURL: OnlineMedia.neteaseCoverURL(song.picURL), lyrics: .neteaseID(song.id))
+        })
+    }
+
     static func qq(_ query: String) async -> SourceResult {
         guard let items = await OnlineMedia.qqSearch(query, count: 12) else { return .failed("连接失败") }
         return .ok(items.compactMap { item in
@@ -174,6 +185,7 @@ enum OnlineSearch {
         case .text(let text): return text
         case .kugouID(let id, let key): return await OnlineMedia.kugouDownloadLyrics(id: id, accessKey: key)
         case .qqMid(let mid): return await OnlineMedia.qqDownloadLyrics(mid: mid)
+        case .neteaseID(let id): return await OnlineMedia.neteaseDownloadLyrics(id: id)
         case .kugouHash(let hash):
             var comps = URLComponents(string: "https://lyrics.kugou.com/search")!
             comps.queryItems = [

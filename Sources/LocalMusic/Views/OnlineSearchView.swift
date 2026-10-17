@@ -19,7 +19,7 @@ struct OnlineSearchView: View {
         case empty
     }
 
-    private static let sources: [OnlineCandidate.Source] = [.kugou, .qq, .itunes]
+    private static let sources: [OnlineCandidate.Source] = [.kugou, .qq, .netease, .itunes]
 
     /// 点了某个来源的胶囊：只显示这个来源的结果（再点一下显示全部）
     @State private var filter: OnlineCandidate.Source?
@@ -314,6 +314,7 @@ struct OnlineSearchView: View {
                 switch source {
                 case .kugou: result = await OnlineSearch.kugou(q)
                 case .qq: result = await OnlineSearch.qq(q)
+                case .netease: result = await OnlineSearch.netease(q)
                 case .itunes: result = await OnlineSearch.itunes(q)
                 }
                 guard id == searchID else { return }
@@ -390,6 +391,7 @@ struct OnlineSearchView: View {
         switch source {
         case .kugou: return Theme.slate
         case .qq: return Theme.teal
+        case .netease: return Theme.terra
         case .itunes: return Theme.mustard
         }
     }

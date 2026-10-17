@@ -186,10 +186,12 @@ enum OnlineMedia {
                 return data
             }
         }
-        if let artURL = await searchKugouCover(track), let url = URL(string: artURL),
-           let data = try? await getData(url), !data.isEmpty {
-            try? data.write(to: coverFile(track))
-            return data
+        for find in [searchKugouCover, neteaseCover] {
+            if let artURL = await find(track), let url = URL(string: artURL),
+               let data = try? await getData(url), !data.isEmpty {
+                try? data.write(to: coverFile(track))
+                return data
+            }
         }
         return nil
     }
@@ -240,9 +242,10 @@ enum OnlineMedia {
     // MARK: 歌词
 
     static func fetchLyrics(for track: Track) async -> String? {
-        // 先酷狗，找不到再 QQ 音乐（LRCLIB 在国内一直连不上，已经去掉）
+        // 先酷狗，找不到再 QQ 音乐，再网易云（LRCLIB 在国内一直连不上，已经去掉）
         var result = await kugouLyrics(track)
         if result == nil { result = await qqLyrics(track) }
+        if result == nil { result = await neteaseLyrics(track) }
 
         if let result {
             try? result.write(to: lyricsFile(track), atomically: true, encoding: .utf8)
@@ -352,6 +355,119 @@ enum OnlineMedia {
         let best = items.compactMap { item in score(item).map { (item, $0) } }.max { $0.1 < $1.1 }
         guard let mid = best?.0.songmid else { return nil }
         return await qqDownloadLyrics(mid: mid)
+    }
+
+    // MARK: 网易云音乐（网页版自己用的接口，任何失败都直接跳过）
+
+    static let neteaseReferer = "https://music.163.com"
+
+    struct NetEaseSong: Sendable {
+        let id: Int
+        let name: String
+        let artists: [String]
+        let album: String?
+        let duration: Double?   // 秒
+        let picURL: String?
+    }
+
+    private struct NetEaseSearchResponse: Decodable {
+        struct Named: Decodable { let name: String? }
+        struct Album: Decodable { let name: String?; let picUrl: String? }
+        struct Song: Decodable {
+            let id: Int
+            let name: String?
+            let ar: [Named]?
+            let al: Album?
+            let dt: Double?   // 毫秒
+        }
+        struct Result: Decodable { let songs: [Song]? }
+        let code: Int
+        let result: Result?
+    }
+
+    /// 网易云歌曲搜索（cloudsearch：结果带歌手、专辑封面、时长，比旧的 /api/search/get 准）
+    static func neteaseSearch(_ keyword: String, count: Int) async -> [NetEaseSong]? {
+        var comps = URLComponents(string: "https://music.163.com/api/cloudsearch/pc")!
+        comps.queryItems = [
+            URLQueryItem(name: "s", value: keyword),
+            URLQueryItem(name: "type", value: "1"),
+            URLQueryItem(name: "limit", value: String(count)),
+            URLQueryItem(name: "offset", value: "0"),
+        ]
+        guard let url = comps.url,
+              let data = try? await getData(url, referer: neteaseReferer),
+              let response = try? JSONDecoder().decode(NetEaseSearchResponse.self, from: data),
+              response.code == 200 else { return nil }
+        return (response.result?.songs ?? []).compactMap { song in
+            guard let name = song.name, !name.isEmpty else { return nil }
+            return NetEaseSong(id: song.id, name: name, artists: (song.ar ?? []).compactMap(\.name),
+                               album: song.al?.name.flatMap { $0.isEmpty ? nil : $0 },
+                               duration: song.dt.map { $0 / 1000 }, picURL: song.al?.picUrl)
+        }
+    }
+
+    /// 按歌曲 id 下载网易云的 LRC 歌词（纯音乐、没收录歌词的返回 nil）
+    static func neteaseDownloadLyrics(id: Int) async -> String? {
+        var comps = URLComponents(string: "https://music.163.com/api/song/lyric")!
+        comps.queryItems = [
+            URLQueryItem(name: "id", value: String(id)),
+            URLQueryItem(name: "lv", value: "1"),
+            URLQueryItem(name: "tv", value: "-1"),
+        ]
+        struct Response: Decodable {
+            struct Lrc: Decodable { let lyric: String? }
+            let lrc: Lrc?
+            let nolyric: Bool?
+            let uncollected: Bool?
+        }
+        guard let url = comps.url, let data = try? await getData(url, referer: neteaseReferer),
+              let response = try? JSONDecoder().decode(Response.self, from: data),
+              response.nolyric != true, response.uncollected != true,
+              let text = response.lrc?.lyric else { return nil }
+        return nonEmpty(text)
+    }
+
+    /// 网易云专辑封面（改成 https、500 尺寸）
+    static func neteaseCoverURL(_ pic: String?) -> URL? {
+        guard let pic, !pic.isEmpty else { return nil }
+        return URL(string: pic.replacingOccurrences(of: "http://", with: "https://") + "?param=500y500")
+    }
+
+    /// 自动找：用「歌手 歌名」搜，再按歌名、歌手、时长挑最像的一首
+    private static func neteaseBest(_ track: Track, needsCover: Bool) async -> NetEaseSong? {
+        let keyword = track.hasKnownArtist ? "\(track.artist) \(track.title)" : track.title
+        guard let songs = await neteaseSearch(keyword, count: 15) else { return nil }
+        let wantTitle = normalize(track.title)
+        let wantArtist = track.hasKnownArtist ? normalize(track.artist) : ""
+        guard !wantTitle.isEmpty else { return nil }
+        func score(_ song: NetEaseSong) -> Int? {
+            if needsCover && (song.picURL ?? "").isEmpty { return nil }
+            let title = normalize(song.name)
+            guard !title.isEmpty, title == wantTitle || title.contains(wantTitle) || wantTitle.contains(title) else { return nil }
+            var s = title == wantTitle ? 3 : 1
+            if !wantArtist.isEmpty {
+                let artists = song.artists.map(normalize)
+                guard artists.contains(where: { !$0.isEmpty && ($0.contains(wantArtist) || wantArtist.contains($0)) }) else { return nil }
+                s += 3
+            }
+            if let d = song.duration, track.duration > 0, abs(d - track.duration) <= 3 { s += 2 }
+            return s
+        }
+        // 分数一样时取靠前的（网易云已按匹配度排序）
+        var best: (song: NetEaseSong, score: Int)?
+        for song in songs {
+            if let sc = score(song), sc > (best?.score ?? -1) { best = (song, sc) }
+        }
+        return best?.song
+    }
+
+    private static func neteaseLyrics(_ track: Track) async -> String? {
+        guard let song = await neteaseBest(track, needsCover: false) else { return nil }
+        return await neteaseDownloadLyrics(id: song.id)
+    }
+
+    private static func neteaseCover(_ track: Track) async -> String? {
+        await neteaseBest(track, needsCover: true).flatMap { neteaseCoverURL($0.picURL)?.absoluteString }
     }
 
     /// QQ 的歌词里偶尔有 &#58; &apos; 这类网页转义
