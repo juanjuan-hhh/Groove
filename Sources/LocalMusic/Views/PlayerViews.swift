@@ -205,6 +205,8 @@ struct NowPlayingView: View {
     @Environment(LibraryStore.self) private var library
     @State private var showQueue = false
     @State private var showQueueFromBottom = false
+    /// 和设置菜单里的「播放时旋转封面」是同一个开关
+    @AppStorage(SpinningArtwork.enabledKey) private var spinCover = true
 
     var body: some View {
         GeometryReader { geo in
@@ -345,6 +347,7 @@ struct NowPlayingView: View {
                         }
                     }
                     .disabled(!player.hasSyncedLyrics)
+                    Toggle("播放时旋转封面", isOn: $spinCover)
                     if let track = player.current {
                         Button("在访达中显示") { NSWorkspace.shared.activateFileViewerSelecting([track.url]) }
                     }
