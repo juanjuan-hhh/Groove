@@ -760,8 +760,13 @@ struct FloatingBallView: View {
             // 半透明玻璃底，透出一点封面的颜色（没封面时用很淡的底色），让进度环看得清
             // 半透明玻璃底；贴边藏起一半时不用系统玻璃（它不能调透明度），换成更透明的底色，进度环、音柱不变
             if FloatingBall.shared.tuckedEdge != nil {
-                Circle().fill(Theme.card.opacity(0.06)).allowsHitTesting(false)
-                Circle().fill(coverTint.map { $0.opacity(0.16) } ?? Theme.card.opacity(0.08)).allowsHitTesting(false)
+                // 底色只铺在进度环里面（不超出那条线）
+                Group {
+                    Circle().fill(Theme.card.opacity(0.12))
+                    Circle().fill(coverTint.map { $0.opacity(0.28) } ?? Theme.card.opacity(0.14))
+                }
+                .padding(ringInset + ring / 2)
+                .allowsHitTesting(false)
             } else {
                 GlassBackground(cornerRadius: size / 2)
             }
