@@ -139,6 +139,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // 退出时把独占的输出设备还给系统、恢复原来的采样率
     func applicationWillTerminate(_ notification: Notification) {
+        player?.saveSession()
         ExclusiveOutput.shared.release()
     }
 

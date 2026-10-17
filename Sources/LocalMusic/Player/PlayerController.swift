@@ -41,13 +41,13 @@ enum LyricsState: Equatable {
 @MainActor
 @Observable
 final class PlayerController {
-    private(set) var queue: [Track] = []
-    private(set) var index = 0
+    private(set) var queue: [Track] = [] { didSet { sessionDirty = true } }
+    private(set) var index = 0 { didSet { sessionDirty = true } }
     private(set) var isPlaying = false
     private(set) var currentTime: Double = 0 { didSet { refreshLyricIndex() } }
     private(set) var duration: Double = 0
-    private(set) var shuffle = false
-    private(set) var repeatMode: RepeatMode = .all
+    private(set) var shuffle = false { didSet { sessionDirty = true } }
+    private(set) var repeatMode: RepeatMode = .all { didSet { sessionDirty = true } }
     var showNowPlaying = false
     var showLyrics = false
     /// 正在调整歌词时间：歌词页下方显示「提前 / 延后」按钮（在 ⋯ 菜单里开、关）
@@ -264,6 +264,76 @@ final class PlayerController {
         }
         setupRemoteCommands()
         ExclusiveOutput.shared.configChanged = { [weak self] in self?.outputSettingsChanged() ?? false }
+        restoreSession()
+    }
+
+    // MARK: 上次播放（退出后下次打开还是这首歌、这个位置，暂停着）
+
+    /// 播放队列、第几首、随机 / 循环存成文件（换歌、改队列时写）；播放位置单独存（播放时每 5 秒、暂停、退出时写），
+    /// 这样就算闪退也最多差几秒
+    private struct SavedSession: Codable {
+        var queue: [Track]
+        var originalQueue: [Track]
+        var index: Int
+        var shuffle: Bool
+        var repeatMode: Int
+    }
+    private static let sessionURL = AppPaths.support.appendingPathComponent("last-session.json")
+    private static let sessionPathKey = "lastSessionPath"
+    private static let sessionTimeKey = "lastSessionTime"
+    @ObservationIgnored private var sessionDirty = false
+    @ObservationIgnored private var lastSavedTime: Double = 0
+    /// 刚恢复、还没真正跳到上次位置时记着，免得进度先被报成 0
+    @ObservationIgnored private var pendingRestoreTime: Double?
+
+    /// 保存播放队列和位置（退出时 AppDelegate 也会调）
+    func saveSession() {
+        if sessionDirty { saveQueue() }
+        savePosition()
+    }
+
+    private func saveQueue() {
+        sessionDirty = false
+        guard current != nil else {
+            try? FileManager.default.removeItem(at: Self.sessionURL)
+            return
+        }
+        let session = SavedSession(queue: queue, originalQueue: originalQueue, index: index,
+                                   shuffle: shuffle, repeatMode: repeatMode.rawValue)
+        if let data = try? JSONEncoder().encode(session) { try? data.write(to: Self.sessionURL, options: .atomic) }
+    }
+
+    private func savePosition() {
+        let time = pendingRestoreTime ?? currentTime
+        lastSavedTime = time
+        UserDefaults.standard.set(current?.path, forKey: Self.sessionPathKey)
+        UserDefaults.standard.set(time, forKey: Self.sessionTimeKey)
+    }
+
+    private func restoreSession() {
+        defer { sessionDirty = false }
+        guard let data = try? Data(contentsOf: Self.sessionURL),
+              let session = try? JSONDecoder().decode(SavedSession.self, from: data),
+              session.queue.indices.contains(session.index) else { return }
+        let fm = FileManager.default
+        let track = session.queue[session.index]
+        // 上次那首歌的文件不在了：就当没在播放
+        guard fm.fileExists(atPath: track.path) else { return }
+        queue = session.queue.filter { fm.fileExists(atPath: $0.path) }
+        originalQueue = session.originalQueue.filter { fm.fileExists(atPath: $0.path) }
+        index = queue.firstIndex { $0.id == track.id } ?? 0
+        shuffle = session.shuffle
+        repeatMode = RepeatMode(rawValue: session.repeatMode) ?? .all
+        load(autoplay: false)
+        // 不放歌就不占着独占的声卡（和暂停一样，过一会儿还回去）
+        ExclusiveOutput.shared.paused()
+        let defaults = UserDefaults.standard
+        let time = defaults.string(forKey: Self.sessionPathKey) == track.path ? defaults.double(forKey: Self.sessionTimeKey) : 0
+        if time > 1, time < track.duration - 1 {
+            seek(to: time)
+            pendingRestoreTime = time
+        }
+        lastSavedTime = time
     }
 
     // MARK: 播放队列
@@ -365,6 +435,7 @@ final class PlayerController {
         ExclusiveOutput.shared.paused()
         isPlaying = false
         updateNowPlayingInfo()
+        saveSession()
     }
 
     func next() {
@@ -381,6 +452,7 @@ final class PlayerController {
     }
 
     func seek(to time: Double) {
+        pendingRestoreTime = nil
         let t = max(0, min(time, duration > 0 ? duration : time))
         currentTime = t
         player.seek(to: CMTime(seconds: t, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
@@ -392,7 +464,15 @@ final class PlayerController {
     }
 
     private func tick(_ time: CMTime) {
+        if let target = pendingRestoreTime {
+            // 恢复后还没准备好：进度先别被报成 0；准备好了还没到位置就再跳一次
+            guard player.currentItem?.status == .readyToPlay else { return }
+            pendingRestoreTime = nil
+            if abs(time.seconds - target) > 1 { seek(to: target); return }
+        }
         if time.seconds.isFinite { currentTime = time.seconds }
+        if sessionDirty { saveQueue() }
+        if isPlaying, abs(currentTime - lastSavedTime) >= 5 { savePosition() }
         if let d = player.currentItem?.duration.seconds, d.isFinite, d > 0, abs(d - duration) > 0.5 {
             duration = d
         }
@@ -422,7 +502,9 @@ final class PlayerController {
     private func load(autoplay: Bool) {
         guard let track = current else { return }
         player.replaceCurrentItem(with: makeItem(for: track))
+        pendingRestoreTime = nil
         currentTime = 0
+        lastSavedTime = 0
         duration = track.duration
         if autoplay {
             player.play()
