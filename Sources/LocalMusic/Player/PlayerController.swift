@@ -116,18 +116,26 @@ final class PlayerController {
 
     // MARK: 歌词时间调整
 
-    static let lyricOffsetStep = 0.5
+    static let lyricOffsetStep = 0.25
 
     var hasSyncedLyrics: Bool { lyrics.first?.time != nil }
 
-    /// 例如 "歌词提前 0.5s"、"歌词延后 1.0s"、"歌词已同步"
+    /// 例如 "歌词提前 0.25s"、"歌词延后 1.5s"、"歌词已同步"
     var lyricOffsetLabel: String {
         if lyricOffset == 0 { return "歌词已同步" }
-        return String(format: "歌词%@ %.1fs", lyricOffset > 0 ? "提前" : "延后", abs(lyricOffset))
+        return "歌词" + (lyricOffset > 0 ? "提前 " : "延后 ") + Self.seconds(abs(lyricOffset))
+    }
+
+    /// 秒数最多两位小数，去掉末尾的 0：0.25 → "0.25s"，1.5 → "1.5s"，2 → "2s"
+    static func seconds(_ value: Double) -> String {
+        var text = String(format: "%.2f", value)
+        while text.hasSuffix("0") { text.removeLast() }
+        if text.hasSuffix(".") { text.removeLast() }
+        return text + "s"
     }
     private static let lyricOffsetsKey = "lyricOffsets"
 
-    /// 歌词提前（正数）或延后（负数）调整，每次 0.5 秒
+    /// 歌词提前（正数）或延后（负数）调整，每次 0.25 秒
     func adjustLyricOffset(by delta: Double) {
         setLyricOffset(lyricOffset + delta)
     }
@@ -235,12 +243,12 @@ final class PlayerController {
     /// 0.8 → "歌词提前 0.8s"，0 → "不偏移"
     private static func offsetText(_ offset: Double) -> String {
         if abs(offset) < 0.05 { return "不偏移" }
-        return String(format: "歌词%@ %.1fs", offset > 0 ? "提前" : "延后", abs(offset))
+        return "歌词" + (offset > 0 ? "提前 " : "延后 ") + seconds(abs(offset))
     }
 
     private func setLyricOffset(_ value: Double) {
         guard let track = current else { return }
-        let rounded = (value * 10).rounded() / 10   // 精确到 0.1 秒，避免浮点误差累积
+        let rounded = (value * 100).rounded() / 100   // 精确到 0.01 秒，避免浮点误差累积（一档 0.25 秒）
         lyricOffset = rounded
         var all = UserDefaults.standard.dictionary(forKey: Self.lyricOffsetsKey) as? [String: Double] ?? [:]
         all[track.path] = rounded == 0 ? nil : rounded
