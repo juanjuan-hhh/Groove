@@ -529,7 +529,9 @@ final class PlayerController {
         guard track.isDSD else {
             stream = .file
             prepareOutput(for: track)
-            return AVPlayerItem(url: track.url)
+            // 要精确的时间：不然 FLAC 跳转时 AVPlayer 按码率估一个位置，报的时间却是跳转目标，
+            // 实际声音在别处（比如《浮夸》从 3:59 接着放，进度走到 4:55 还没放完，歌词也就对不上）
+            return AVPlayerItem(asset: AVURLAsset(url: track.url, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true]))
         }
         guard let file = DSDFile.read(url: track.url), !file.compressed else {
             stream = .file
