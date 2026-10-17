@@ -230,26 +230,38 @@ struct NowPlayingView: View {
             ZStack {
                 VStack(spacing: 0) {
                     header.padding(.top, 14).background(WindowDragArea())
-                    if player.showLyrics {
-                        LyricsView()
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .mask(LyricsFadeMask())
-                            .padding(.top, 22)
-                        if player.adjustingLyrics && player.hasSyncedLyrics {
-                            LyricOffsetBar()
-                                .padding(.bottom, 14)
-                                .transition(.opacity)
+                    // 封面 ↔ 歌词切换：封面缩小淡出、歌词从下面浮上来淡入（反过来也一样）
+                    ZStack {
+                        if player.showLyrics {
+                            VStack(spacing: 0) {
+                                LyricsView()
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                    .mask(LyricsFadeMask())
+                                    .padding(.top, 22)
+                                if player.adjustingLyrics && player.hasSyncedLyrics {
+                                    LyricOffsetBar()
+                                        .padding(.bottom, 14)
+                                        .transition(.opacity)
+                                }
+                            }
+                            .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 30)),
+                                                    removal: .opacity.combined(with: .offset(y: 30))))
+                        } else {
+                            VStack(spacing: 0) {
+                                // 封面按剩下的空间算大小，窗口矮时缩小，不会往上压到标题和歌手
+                                GeometryReader { area in
+                                    cover(in: area.size)
+                                        .frame(width: area.size.width, height: area.size.height)
+                                }
+                                .frame(maxHeight: .infinity)
+                                .padding(.top, 20)   // 和上面的歌名、歌手隔开一点
+                                functionRow.padding(.bottom, 14)
+                            }
+                            .transition(.opacity.combined(with: .scale(scale: 0.88)))
                         }
-                    } else {
-                        // 封面按剩下的空间算大小，窗口矮时缩小，不会往上压到标题和歌手
-                        GeometryReader { area in
-                            cover(in: area.size)
-                                .frame(width: area.size.width, height: area.size.height)
-                        }
-                        .frame(maxHeight: .infinity)
-                        .padding(.top, 20)   // 和上面的歌名、歌手隔开一点
-                        functionRow.padding(.bottom, 14)
                     }
+                    .frame(maxHeight: .infinity)
+                    .animation(.spring(response: 0.42, dampingFraction: 0.9), value: player.showLyrics)
                     ProgressSection()
                     controls.padding(.vertical, 14)
                     upNext.padding(.bottom, 18)
