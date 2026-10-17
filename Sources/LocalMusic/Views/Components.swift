@@ -188,7 +188,7 @@ struct GroupRow<Leading: View>: View {
         .padding(.horizontal, 20)
         .padding(.vertical, 8)
         .background(RoundedRectangle(cornerRadius: Theme.rowRadius, style: .continuous)
-            .fill(hovering ? Theme.surface : .clear).padding(.horizontal, 8))
+            .fill(hovering ? Theme.rowHover : .clear).padding(.horizontal, 8))
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
     }

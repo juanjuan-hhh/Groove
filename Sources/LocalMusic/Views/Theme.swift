@@ -34,6 +34,12 @@ enum Theme {
     @MainActor static var divider: Color { hasBackgroundImage ? text.opacity(0.12) : line }
     /// 表头、占位字这类最淡的文字
     @MainActor static var faint: Color { hasBackgroundImage ? text2 : text3 }
+    /// 鼠标放上去的那一行、正在放的那一行、小标签的底：背景是图片时半透明，透出背景
+    @MainActor static var rowHover: Color { hasBackgroundImage ? card.opacity(0.45) : surface }
+    @MainActor static var rowCurrent: Color { hasBackgroundImage ? card.opacity(0.35) : card }
+    @MainActor static var chip: Color { hasBackgroundImage ? surface.opacity(0.55) : surface }
+    @MainActor static var panel: Color { hasBackgroundImage ? card.opacity(0.5) : card }
+
     /// 说明文字（歌手、专辑、格式、时长……）：背景是图片时用正文色压淡一点，比固定的灰色更看得清
     @MainActor static var secondary: Color { hasBackgroundImage ? text.opacity(0.75) : text2 }
 

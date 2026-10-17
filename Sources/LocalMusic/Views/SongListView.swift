@@ -154,7 +154,7 @@ struct SongListView: View {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     if let sections {
                         ForEach(sections) { section in
-                            ChipText(text: section.id, color: Theme.surface, foreground: Theme.text, font: .ui(12, .heavy), hPad: 9, vPad: 2)
+                            ChipText(text: section.id, color: Theme.chip, foreground: Theme.text, font: .ui(12, .heavy), hPad: 9, vPad: 2)
                                 .padding(.horizontal, 24)
                                 .padding(.top, 14)
                                 .padding(.bottom, 4)
@@ -228,7 +228,7 @@ struct TrackRow: View {
         .padding(.vertical, 6)
         .background(
             RoundedRectangle(cornerRadius: Theme.rowRadius, style: .continuous)
-                .fill(hovering ? Theme.surface : (isCurrent ? Theme.card : .clear))
+                .fill(hovering ? Theme.rowHover : (isCurrent ? Theme.rowCurrent : .clear))
                 .padding(.horizontal, 10)
         )
         .contentShape(Rectangle())
@@ -326,7 +326,7 @@ struct AlphabetIndex: View {
             }
         }
         .padding(.vertical, vPad)
-        .background(Capsule().fill(Theme.card))
+        .background(Capsule().fill(Theme.panel))
         .padding(.horizontal, 6)
         .contentShape(Rectangle())
         .gesture(
