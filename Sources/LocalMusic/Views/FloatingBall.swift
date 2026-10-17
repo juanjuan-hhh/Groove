@@ -491,7 +491,7 @@ final class FloatingBall {
     // MARK: 歌词条
 
     var lyricWidth: CGFloat { 320 * lyricScale }
-    var lyricHeight: CGFloat { ((Self.twoLines ? 58 : 36) * lyricScale).rounded() }
+    var lyricHeight: CGFloat { ((Self.twoLines ? 68 : 36) * lyricScale).rounded() }
 
     /// 「显示两行歌词」：当前这句 + 下一句（小一点、淡一点）
     static let twoLinesKey = "floatingLyricsTwoLines"
@@ -825,44 +825,43 @@ private struct FloatingLyricView: View {
         let next = preview ? "下一句歌词" : nextLine
         let visible = ball.adjustingLyric || (!line.isEmpty && (ball.tuckedEdge == nil || showWhenTucked)
             && mode != .off && (mode == .always || ball.hovering))
-        // 文字靠球那一边对齐
+        // 两颗胶囊：当前这句，下面一颗小一点的是下一句；都贴着球那一边对齐
         let align: HorizontalAlignment = ball.lyricOnLeft ? .trailing : .leading
-        VStack(alignment: align, spacing: 2 * s) {
-            Text(line)
-                .font(.ui(14 * s, .semibold))
-                .foregroundStyle(Theme.text)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .id(line)
-                .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity),
-                                        removal: .move(edge: .top).combined(with: .opacity)))
+        VStack(alignment: align, spacing: 4 * s) {
+            capsule(line, size: 14 * s, weight: .semibold, color: Theme.text, height: 36 * s, id: "cur")
             if twoLines && !next.isEmpty {
-                Text(next)
-                    .font(.ui(11 * s, .medium))
-                    .foregroundStyle(Theme.text2)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .id("next" + next)
-                    .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity),
-                                            removal: .move(edge: .top).combined(with: .opacity)))
+                capsule(next, size: 11 * s, weight: .medium, color: Theme.text2, height: 28 * s, id: "next")
             }
         }
-        .padding(.horizontal, 16 * s)
-        .padding(.vertical, twoLines ? 8 * s : 0)
-        .frame(minHeight: (36 * s).rounded())
-        .clipped()
-        .background {
-            ZStack {
-                GlassBackground(cornerRadius: 18 * s)
-                RoundedRectangle(cornerRadius: 18 * s, style: .continuous).fill(Theme.card.opacity(0.35))
-            }
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 18 * s, style: .continuous))
         .animation(.easeInOut(duration: 0.35), value: line)
-        // 贴着球那一边对齐，长度跟着歌词变，最长到整个歌词条；上下居中对齐球
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: ball.lyricOnLeft ? .trailing : .leading)
         .opacity(visible ? 1 : 0)
         .animation(.easeInOut(duration: 0.2), value: visible)
+    }
+
+    private func capsule(_ text: String, size: CGFloat, weight: Font.Weight, color: Color, height: CGFloat, id: String) -> some View {
+        let s = FloatingBall.shared.lyricScale
+        return ZStack {
+            Text(text)
+                .font(.ui(size, weight))
+                .foregroundStyle(color)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .id(id + text)
+                .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity),
+                                        removal: .move(edge: .top).combined(with: .opacity)))
+        }
+        .padding(.horizontal, (height > 30 * s ? 16 : 12) * s)
+        .frame(height: height.rounded())
+        .clipped()
+        .background {
+            ZStack {
+                GlassBackground(cornerRadius: height / 2)
+                Capsule().fill(Theme.card.opacity(0.35))
+            }
+        }
+        .clipShape(Capsule())
+        .animation(.easeInOut(duration: 0.35), value: text)
     }
 
     /// 当前这一句；没有逐句歌词时为空（不显示歌词条）
