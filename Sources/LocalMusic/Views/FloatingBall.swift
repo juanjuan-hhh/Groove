@@ -963,24 +963,25 @@ private struct FloatingLyricView: View {
             && mode != .off && (mode == .always || ball.hovering))
         // 文字靠球那一边对齐
         let align: HorizontalAlignment = ball.lyricOnLeft ? .trailing : .leading
+        let rowAlign: Alignment = ball.lyricOnLeft ? .trailing : .leading
+        // 量大小用：现在这句（+ 下一句），不显示，只撑开胶囊。宽度跟着这几句变，带动画
         VStack(alignment: align, spacing: 2 * s) {
-            Text(line)
-                .font(.ui(14 * s, .semibold))
-                .foregroundStyle(Theme.text)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .id(line)
-                .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity),
-                                        removal: .move(edge: .top).combined(with: .opacity)))
+            Text(line).font(.ui(14 * s, .semibold)).lineLimit(1)
             if twoLines && !next.isEmpty {
-                Text(next)
-                    .font(.ui(11 * s, .medium))
-                    .foregroundStyle(Theme.text2)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .id("next" + next)
-                    .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity),
-                                            removal: .move(edge: .top).combined(with: .opacity)))
+                Text(next).font(.ui(11 * s, .medium)).lineLimit(1)
+            }
+        }
+        .opacity(0)
+        // 真正显示的：前后几句排成一列，换句时整列往上推一行；
+        // 下一句一边上移一边放大变亮成为当前这句，旧的当前句往上移出、变淡
+        .overlay(alignment: rowAlign) {
+            if preview {
+                VStack(alignment: align, spacing: 2 * s) {
+                    Text(line).font(.ui(14 * s, .semibold)).foregroundStyle(Theme.text).lineLimit(1)
+                    if twoLines { Text(next).font(.ui(11 * s, .medium)).foregroundStyle(Theme.text2).lineLimit(1) }
+                }
+            } else {
+                scrollingRows(scale: s, align: rowAlign)
             }
         }
         .padding(.horizontal, 16 * s)
@@ -998,13 +999,58 @@ private struct FloatingLyricView: View {
         .contentShape(RoundedRectangle(cornerRadius: 18 * s, style: .continuous))
         .onTapGesture(count: 2) { FloatingBall.shared.exit() }
         .allowsHitTesting(visible)
-        .animation(.easeInOut(duration: 0.35), value: line)
+        .animation(.easeInOut(duration: 0.35), value: player.currentLyricIndex)
         // 贴着球那一边对齐，长度跟着歌词变，最长到整个歌词条；上下居中对齐球
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: ball.lyricOnLeft ? .trailing : .leading)
         .opacity(visible ? 1 : 0)
         .animation(.easeInOut(duration: 0.2), value: visible)
         // 胶囊不显示时整条歌词窗口都不接鼠标，不挡后面的东西
         .onChange(of: visible, initial: true) { _, shown in FloatingBall.shared.setLyricClickable(shown) }
+    }
+
+    /// 有字的歌词行（跳过空行），按顺序
+    private var textRows: [(index: Int, text: String)] {
+        guard player.lyricsState == .loaded else { return [] }
+        return player.lyrics.enumerated().compactMap { i, l in
+            let t = l.text.trimmingCharacters(in: .whitespaces)
+            return t.isEmpty ? nil : (i, t)
+        }
+    }
+
+    /// 当前句前后几行，每行按「离当前句差几行」往上 / 往下摆。换句时每行的位置一起动起来，看起来就是整列往上推
+    private func scrollingRows(scale s: CGFloat, align: Alignment) -> some View {
+        let rows = textRows
+        let current = player.currentLyricIndex ?? -1
+        // 当前句在 rows 里的位置（当前是空行时取它前面最近的一句）
+        let pos = rows.lastIndex { $0.index <= current } ?? -1
+        let pitch = (twoLines ? 19 : 26) * s
+        // 两行时当前句在上半、下一句在下半；一行时当前句在正中
+        let base = twoLines ? -pitch / 2 : 0
+        let window = rows.indices.filter { $0 >= pos - 1 && $0 <= pos + 2 }
+        let small = 11.0 / 14.0
+        return GeometryReader { geo in
+            ZStack(alignment: align) {
+                ForEach(window, id: \.self) { k in
+                    let isCurrent = k == pos
+                    let shown = isCurrent || (twoLines && k == pos + 1)
+                    Text(rows[k].text)
+                        .font(.ui(14 * s, .semibold))
+                        .foregroundStyle(isCurrent ? Theme.text : Theme.text2)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        // 字号换不出平滑动画，用缩放：不是当前句时缩到 11/14，靠球那一边对齐；
+                        // 排版时按缩放前的宽度给，缩完正好是胶囊的宽度，不会提前出省略号
+                        .frame(width: geo.size.width / (isCurrent ? 1 : small), alignment: align)
+                        .scaleEffect(isCurrent ? 1 : small, anchor: align == .trailing ? .trailing : .leading)
+                        .frame(width: geo.size.width, alignment: align)
+                        .opacity(shown ? 1 : 0)
+                        .offset(y: base + CGFloat(k - pos) * pitch)
+                        .transition(.opacity)
+                }
+            }
+            .frame(width: geo.size.width, height: geo.size.height, alignment: align)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: align)
     }
 
     /// 当前这一句；没有逐句歌词时为空（不显示歌词条）
