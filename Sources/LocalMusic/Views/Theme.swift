@@ -102,6 +102,15 @@ enum AppearanceMode: String, CaseIterable, Identifiable {
         }
     }
 
+    /// 换成这一种以后是不是深色（跟随系统就看系统现在是深色还是浅色）
+    var isDark: Bool {
+        switch self {
+        case .dark: return true
+        case .light: return false
+        case .system: return UserDefaults.standard.string(forKey: "AppleInterfaceStyle") == "Dark"
+        }
+    }
+
     static var current: AppearanceMode {
         AppearanceMode(rawValue: UserDefaults.standard.string(forKey: key) ?? "") ?? .dark
     }

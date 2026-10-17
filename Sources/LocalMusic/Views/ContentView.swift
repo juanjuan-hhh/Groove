@@ -223,10 +223,10 @@ struct TopBar: View {
                     Button("恢复默认") { AppBackground.shared.reset() }
                         .disabled(AppBackground.shared.image == nil)
                 }
-                // 换外观时新样子从窗口中间像圆一样扩散开（见 ThemeReveal）
+                // 换外观时有圆形过渡：浅色从中间扩散开，深色从四周包围回来（见 ThemeReveal）
                 Picker("外观", selection: Binding(get: { appearance }, set: { newValue in
                     guard newValue != appearance else { return }
-                    ThemeReveal.perform { appearance = newValue }
+                    ThemeReveal.perform(toDark: newValue.isDark) { appearance = newValue }
                 })) {
                     ForEach(AppearanceMode.allCases) { Text($0.label).tag($0) }
                 }
@@ -279,7 +279,7 @@ private struct AppearanceToggle: View {
     var body: some View {
         Button {
             let next: AppearanceMode = scheme == .dark ? .light : .dark
-            ThemeReveal.perform { mode = next }
+            ThemeReveal.perform(toDark: next.isDark) { mode = next }
         } label: {
             Image(systemName: icon)
                 .font(.system(size: 13, weight: .semibold))
