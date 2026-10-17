@@ -243,13 +243,10 @@ struct NowPlayingView: View {
             }
         }
         .foregroundStyle(Theme.text)
-        // 右上角：切到悬浮球（和主窗口顶栏最右边那个一样）
+        // 右上角：打开 / 关闭悬浮球（和主窗口顶栏最右边那个一样）
         .overlay(alignment: .topTrailing) {
-            IconButton(systemName: "circle.circle", size: 17, help: "切换到悬浮球（⇧⌘M）") {
-                FloatingBall.shared.enter(player: player)
-            }
-            .foregroundStyle(Theme.accent)
-            .padding(.top, 18)
+            BallToggleButton(size: 17)
+                .padding(.top, 18)
             .padding(.trailing, 20)
         }
         // 模糊的封面色一直铺到窗口最上面（标题栏下面）

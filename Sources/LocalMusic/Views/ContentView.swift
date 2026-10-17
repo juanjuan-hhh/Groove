@@ -229,13 +229,9 @@ struct TopBar: View {
             .fixedSize()
             .help("设置")
 
-            // 最右边：切到悬浮球（正在播放页也在右上角放了一个）
-            IconButton(systemName: "circle.circle", size: 13, help: "切换到悬浮球（⇧⌘M）") {
-                FloatingBall.shared.enter(player: player)
-            }
-            .foregroundStyle(Theme.accent)
-            .frame(width: 22, height: 22)
-            .disabled(player.current == nil).opacity(player.current == nil ? 0.4 : 1)
+            // 最右边：打开 / 关闭悬浮球（正在播放页也在右上角放了一个）
+            BallToggleButton(size: 13)
+                .frame(width: 22, height: 22)
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 9)

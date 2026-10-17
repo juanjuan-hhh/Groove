@@ -85,6 +85,22 @@ struct IconButton: View {
     }
 }
 
+/// 主窗口右上角的悬浮球开关：开了悬浮球出来（主窗口不动），再点一下收起。
+/// 和设置里的「一直显示悬浮球」是同一个开关，开着时按钮是赭橙色，关着时淡一点
+struct BallToggleButton: View {
+    var size: CGFloat
+    @Environment(PlayerController.self) private var player
+    @AppStorage(FloatingBall.alwaysKey) private var ballOn = false
+
+    var body: some View {
+        IconButton(systemName: ballOn ? "circle.circle.fill" : "circle.circle", size: size,
+                   help: ballOn ? "关闭悬浮球" : "打开悬浮球") {
+            FloatingBall.shared.setAlwaysOn(!ballOn, player: player)
+        }
+        .foregroundStyle(ballOn ? Theme.accent : Theme.text2)
+    }
+}
+
 /// 睡眠定时菜单
 struct SleepTimerMenu: View {
     @Environment(PlayerController.self) private var player
