@@ -964,13 +964,15 @@ private struct FloatingLyricView: View {
         // 文字靠球那一边对齐
         let align: HorizontalAlignment = ball.lyricOnLeft ? .trailing : .leading
         let rowAlign: Alignment = ball.lyricOnLeft ? .trailing : .leading
-        // 量大小用：现在这句（+ 下一句），不显示，只撑开胶囊。宽度跟着这几句变，带动画
-        VStack(alignment: align, spacing: 2 * s) {
+        // 量大小用：现在这句（+ 下一句），不显示，只撑开胶囊。宽度跟着这几句变，带动画。
+        // 下一句按放大后的字号量：它马上要变成当前句，到时候胶囊不用再突然变宽
+        ZStack(alignment: rowAlign) {
             Text(line).font(.ui(14 * s, .semibold)).lineLimit(1)
             if twoLines && !next.isEmpty {
-                Text(next).font(.ui(11 * s, .medium)).lineLimit(1)
+                Text(next).font(.ui(14 * s, .semibold)).lineLimit(1)
             }
         }
+        .frame(height: twoLines ? 32 * s : nil)
         .opacity(0)
         // 真正显示的：前后几句排成一列，换句时整列往上推一行；
         // 下一句一边上移一边放大变亮成为当前这句，旧的当前句往上移出、变淡
@@ -1028,6 +1030,8 @@ private struct FloatingLyricView: View {
         let base = twoLines ? -pitch / 2 : 0
         let window = rows.indices.filter { $0 >= pos - 1 && $0 <= pos + 2 }
         let small = 11.0 / 14.0
+        // 每行都按胶囊最宽时排版（固定宽度，不跟着胶囊宽度的动画一起变），换句的时候字不会重新排、不会跳
+        let full = max(1, FloatingBall.shared.lyricWidth - 32 * s)
         return GeometryReader { geo in
             ZStack(alignment: align) {
                 ForEach(window, id: \.self) { k in
@@ -1040,15 +1044,16 @@ private struct FloatingLyricView: View {
                         .truncationMode(.tail)
                         // 字号换不出平滑动画，用缩放：不是当前句时缩到 11/14，靠球那一边对齐；
                         // 排版时按缩放前的宽度给，缩完正好是胶囊的宽度，不会提前出省略号
-                        .frame(width: geo.size.width / (isCurrent ? 1 : small), alignment: align)
+                        .frame(width: full / (isCurrent ? 1 : small), alignment: align)
                         .scaleEffect(isCurrent ? 1 : small, anchor: align == .trailing ? .trailing : .leading)
-                        .frame(width: geo.size.width, alignment: align)
+                        .frame(width: full, alignment: align)
                         .opacity(shown ? 1 : 0)
                         .offset(y: base + CGFloat(k - pos) * pitch)
                         .transition(.opacity)
                 }
             }
             .frame(width: geo.size.width, height: geo.size.height, alignment: align)
+            .clipped()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: align)
     }

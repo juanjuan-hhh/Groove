@@ -332,8 +332,9 @@ private struct ExpandFromBar: ViewModifier, Animatable {
             .opacity(Double(max(0, (p - 0.25) / 0.75)))
             .scaleEffect(0.94 + 0.06 * p, anchor: .bottom)
             .background {
-                // 外框先跟着长：和播放条一样的底色
-                Theme.card.opacity(Double(1 - p))
+                // 外框先跟着长：和底部播放条完全一样的底色（用了自定义背景时是半透明的），收起时不会闪一块白
+                (AppBackground.shared.image == nil ? Theme.card : Theme.card.opacity(0.3))
+                    .opacity(Double(1 - p))
             }
             .mask {
                 GeometryReader { geo in
