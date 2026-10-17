@@ -55,6 +55,14 @@ final class ArtworkProvider {
     }
 
     @ObservationIgnored private var colors: [String: NSColor] = [:]
+    @ObservationIgnored private var edgeLuminance: [String: Double] = [:]
+
+    /// 封面外圈（悬浮球进度环压着的那一圈）的平均亮度 0…1，用来决定进度环用白色还是黑色
+    func coverEdgeLuminance(for track: Track) async -> Double? {
+        if let value = edgeLuminance[track.path] { return value }
+        _ = await coverColor(for: track)
+        return edgeLuminance[track.path]
+    }
 
     /// 封面的主色（把封面缩成 8×8 取平均，再稍微提一点饱和度、把亮度压在中间，做底色不会太灰也不会太刺眼）。
     /// 没有封面时为 nil
@@ -77,6 +85,16 @@ final class ArtworkProvider {
         for i in stride(from: 0, to: pixels.count, by: 4) {
             r += Double(pixels[i]); g += Double(pixels[i + 1]); b += Double(pixels[i + 2])
         }
+        // 外圈一圈像素的亮度
+        var edge = 0.0, edgeCount = 0.0
+        for y in 0..<side {
+            for x in 0..<side where x == 0 || y == 0 || x == side - 1 || y == side - 1 {
+                let i = (y * side + x) * 4
+                edge += 0.2126 * Double(pixels[i]) + 0.7152 * Double(pixels[i + 1]) + 0.0722 * Double(pixels[i + 2])
+                edgeCount += 1
+            }
+        }
+        edgeLuminance[track.path] = edge / edgeCount / 255
         let n = Double(side * side) * 255
         let average = NSColor(deviceRed: r / n, green: g / n, blue: b / n, alpha: 1)
         var hue: CGFloat = 0, saturation: CGFloat = 0, brightness: CGFloat = 0, alpha: CGFloat = 0
@@ -89,6 +107,7 @@ final class ArtworkProvider {
 
     func invalidate(_ track: Track) {
         colors.removeValue(forKey: track.path)
+        edgeLuminance.removeValue(forKey: track.path)
         missing.remove(track.path)
         for bucket in Self.buckets {
             cache.removeObject(forKey: "\(track.path)#\(Int(bucket))" as NSString)

@@ -627,8 +627,10 @@ struct FloatingBallView: View {
     private var knob: CGFloat { ring * 1.8 }
     /// 进度环往里收这么多，圆点整个落在球里面，不会被圆形边缘裁掉半个
     private var ringInset: CGFloat { knob / 2 }
-    /// 封面的主色，用来给中间的毛玻璃染色
+    /// 封面的主色：贴边藏起一半时给中间染色
     @State private var coverTint: Color?
+    /// 进度环颜色：封面外圈深就用白色，浅就用黑色
+    @State private var ringColor: Color = .white
 
     var body: some View {
         let fraction = player.duration > 0 ? min(1, player.currentTime / player.duration) : 0
@@ -636,9 +638,12 @@ struct FloatingBallView: View {
         ZStack {
             // 半透明玻璃底，透出一点封面的颜色（没封面时用很淡的底色），让进度环看得清
             GlassBackground(cornerRadius: size / 2)
-            Circle().fill(coverTint.map { $0.opacity(0.3) } ?? Theme.card.opacity(0.2)).allowsHitTesting(false)
+            if FloatingBall.shared.tuckedEdge != nil {
+                Circle().fill(coverTint.map { $0.opacity(0.55) } ?? Theme.card.opacity(0.35)).allowsHitTesting(false)
+            }
+            // 封面铺满整个球，进度环直接画在封面外圈上
             if FloatingBall.shared.tuckedEdge == nil {
-                SpinningArtwork(track: player.current, size: (size / 2 - ringInset - ring / 2) * 2 - 1)
+                SpinningArtwork(track: player.current, size: size)
                     .allowsHitTesting(false)
                     .transition(.opacity)
             }
@@ -652,11 +657,11 @@ struct FloatingBallView: View {
                     .transition(.opacity)
             } else {
                 Group {
-                    // 进度环（和 App 图标一样：墨色 / 奶油色，进度头上一个圆点）
-                    Circle().stroke(Theme.track.opacity(0.7), lineWidth: ring).padding(ringInset)
+                    // 进度环：颜色跟着封面外圈的深浅（深 → 白，浅 → 黑），没播的部分同色很淡
+                    Circle().stroke(ringColor.opacity(0.25), lineWidth: ring).padding(ringInset)
                     Circle()
                         .trim(from: 0, to: fraction)
-                        .stroke(Theme.accent, style: StrokeStyle(lineWidth: ring, lineCap: .round))
+                        .stroke(ringColor, style: StrokeStyle(lineWidth: ring, lineCap: .round))
                         .rotationEffect(.degrees(-90))
                         .padding(ringInset)
                     progressKnob(angle: 2 * .pi * fraction)
@@ -675,10 +680,15 @@ struct FloatingBallView: View {
         .task(id: "\(player.current?.path ?? "")#\(provider.revision)") {
             guard let track = player.current else {
                 coverTint = nil
+                ringColor = .white
                 return
             }
             let color = await provider.coverColor(for: track)
-            withAnimation(.easeInOut(duration: 0.4)) { coverTint = color.map { Color(nsColor: $0) } }
+            let luminance = await provider.coverEdgeLuminance(for: track)
+            withAnimation(.easeInOut(duration: 0.4)) {
+                coverTint = color.map { Color(nsColor: $0) }
+                ringColor = (luminance ?? 0) > 0.6 ? .black : .white
+            }
         }
         .frame(width: size, height: size)
         .clipShape(Circle())
@@ -695,18 +705,18 @@ struct FloatingBallView: View {
         // 贴右边时露出左半边，进度从顶部沿左边走到底部；贴左边时反过来
         let mirror: CGFloat = edge == .right ? -1 : 1
         return ZStack {
-            halfArc(to: 1, color: Theme.track.opacity(0.7), width: ring, inset: ringInset, mirror: mirror)
-            halfArc(to: fraction, color: Theme.accent, width: ring, inset: ringInset, mirror: mirror)
+            halfArc(to: 1, color: ringColor.opacity(0.25), width: ring, inset: ringInset, mirror: mirror)
+            halfArc(to: fraction, color: ringColor, width: ring, inset: ringInset, mirror: mirror)
             progressKnob(angle: .pi * max(0, min(1, fraction)), mirror: mirror)
                 .opacity(fraction > 0.01 ? 1 : 0)
 
             Group {
                 if player.isPlaying {
-                    EqualizerBars()
+                    EqualizerBars(color: ringColor)
                 } else {
                     Image(systemName: "play.fill")
                         .font(.system(size: 17, weight: .bold))
-                        .foregroundStyle(Theme.text)
+                        .foregroundStyle(ringColor)
                 }
             }
             .scaleEffect(size / 80)   // 球缩小了，音柱和三角也跟着小一点
@@ -731,7 +741,7 @@ struct FloatingBallView: View {
     private func progressKnob(angle: Double, mirror: CGFloat = 1) -> some View {
         let r = size / 2 - ringInset
         return Circle()
-            .fill(Theme.accent)
+            .fill(ringColor)
             .frame(width: knob, height: knob)
             .offset(x: mirror * r * CGFloat(sin(angle)), y: -r * CGFloat(cos(angle)))
     }
@@ -773,6 +783,7 @@ struct FloatingBallView: View {
 
 /// 三根跳动的音柱（和 App 图标一样的墨色 / 奶油色），悬浮球藏起一半、正在播放时显示
 private struct EqualizerBars: View {
+    var color: Color = Theme.text
     private let peaks: [CGFloat] = [18, 13, 16]
     private let durations = [0.42, 0.55, 0.36]   // 三根节奏不一样
     @State private var up = false
@@ -782,7 +793,7 @@ private struct EqualizerBars: View {
         HStack(alignment: .bottom, spacing: 3) {
             ForEach(0..<3, id: \.self) { i in
                 Capsule()
-                    .fill(Theme.text)
+                    .fill(color)
                     .frame(width: 4, height: up ? peaks[i] : 5)
                     .animation(.easeInOut(duration: durations[i]).repeatForever(autoreverses: true), value: up)
             }
