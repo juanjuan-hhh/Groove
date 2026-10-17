@@ -66,7 +66,10 @@ struct WindowGlass: NSViewRepresentable {
 final class AppBackground {
     static let shared = AppBackground()
     private(set) var image: NSImage?
+    /// 图片从上到下分成 12 条，每条的平均亮度（0…1）。用来算每一条至少要压多暗 / 提多亮，字才看得清
+    private(set) var profile: [Double] = []
     private static let file = AppPaths.support.appendingPathComponent("background-image")
+    private static let bands = 12
 
     /// 模糊（0…30）和透明度（盖在图片上的底色有多浓，0…0.9；越大图片越淡）
     static let blurRange: ClosedRange<Double> = 0...30
@@ -85,7 +88,50 @@ final class AppBackground {
     private static let adjustOriginKey = "backgroundAdjustOrigin"
 
     private init() {
-        if let data = try? Data(contentsOf: Self.file) { image = Self.decode(data) }
+        if let data = try? Data(contentsOf: Self.file) { setImage(Self.decode(data)) }
+    }
+
+    private func setImage(_ image: NSImage?) {
+        self.image = image
+        profile = image.map(Self.brightnessProfile) ?? []
+    }
+
+    /// 每一条的平均亮度：缩成 16×12 的小图来算，很快
+    private static func brightnessProfile(_ image: NSImage) -> [Double] {
+        guard let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return [] }
+        let w = 16, h = bands
+        var px = [UInt8](repeating: 0, count: w * h * 4)
+        guard let ctx = CGContext(data: &px, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                  space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return [] }
+        ctx.interpolationQuality = .medium
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+        // 内存里第一行是图片最上面
+        return (0..<h).map { row in
+            (0..<w).reduce(0.0) { sum, col in
+                let i = (row * w + col) * 4
+                return sum + (0.2126 * Double(px[i]) + 0.7152 * Double(px[i + 1]) + 0.0722 * Double(px[i + 2])) / 255
+            } / Double(w)
+        }
+    }
+
+    /// 盖在图片上的底色从上到下每一处多浓：至少是「透明度」设的值；图片太亮（深色外观，奶油色字）
+    /// 或太暗（浅色外观，墨色字）的地方自动再加浓到字看得清为止
+    func scrimLevels(dark: Bool) -> [Double] {
+        guard !profile.isEmpty else { return [dim] }
+        return profile.map { max(dim, Self.needed(brightness: $0, dark: dark)) }
+    }
+
+    /// 是不是有地方比「透明度」设的值压得更浓（调整卡片里提示一句）
+    func isBoosted(dark: Bool) -> Bool {
+        profile.contains { Self.needed(brightness: $0, dark: dark) > dim + 0.01 }
+    }
+
+    /// 这块亮度的图片上面，至少盖多浓的底色：深色外观盖黑色，盖完亮度不超过 0.38；
+    /// 浅色外观盖暖白色（亮度约 0.97），盖完亮度不低于 0.8
+    private static func needed(brightness l: Double, dark: Bool) -> Double {
+        if dark { return l <= 0.38 ? 0 : 1 - 0.38 / l }
+        return l >= 0.8 ? 0 : (0.8 - l) / (0.97 - l)
     }
 
     /// 缩到不超过 3000 像素，大照片不占太多内存
@@ -101,12 +147,12 @@ final class AppBackground {
         guard panel.runModal() == .OK, let url = panel.url,
               let data = try? Data(contentsOf: url), let image = Self.decode(data) else { return }
         try? data.write(to: Self.file, options: .atomic)
-        self.image = image
+        setImage(image)
     }
 
     func reset() {
         try? FileManager.default.removeItem(at: Self.file)
-        image = nil
+        setImage(nil)
         closeAdjuster()
     }
 
@@ -156,6 +202,7 @@ final class AppBackground {
 /// 调整背景图模糊、透明度的小卡片（和悬浮球「调大小」卡片一个样子）
 private struct BackgroundAdjustView: View {
     @Bindable private var background = AppBackground.shared
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -173,6 +220,11 @@ private struct BackgroundAdjustView: View {
                 label: "\(Int(background.blur.rounded()))")
             row("透明度", value: $background.dim, range: AppBackground.dimRange,
                 label: "\(Int((background.dim * 100).rounded()))%")
+            // 一直占着位置（卡片大小不变），需要时才显示
+            Text("图片太亮或太暗的地方已自动调整，保证文字看得清")
+                .font(.ui(11))
+                .foregroundStyle(Theme.text2)
+                .opacity(background.isBoosted(dark: colorScheme == .dark) ? 1 : 0)
             HStack {
                 Button {
                     background.blur = AppBackground.defaultBlur

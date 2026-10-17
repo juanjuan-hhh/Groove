@@ -17,6 +17,7 @@ struct ContentView: View {
     @State private var newPlaylistName = ""
     /// 正在播放页完全盖住歌曲库时为 true（见下面的 onChange）
     @State private var libraryCovered = false
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         // 标题栏隐藏后，顶上至少留出红绿灯那一条的高度（系统已经留了就不重复留）
@@ -37,10 +38,12 @@ struct ContentView: View {
                             .blur(radius: AppBackground.shared.blur, opaque: true)
                             .clipped()
                     }
-                    Theme.bg.opacity(AppBackground.shared.dim)
-                    // 顶上标题、分类、表头那一块再压暗一点：图片上面亮的地方字也看得清
-                    LinearGradient(colors: [Theme.bg.opacity(0.45), Theme.bg.opacity(0)],
-                                   startPoint: .top, endPoint: .init(x: 0.5, y: 0.4))
+                    // 盖一层底色：按图片从上到下每一处的亮度，至少压到字看得清（见 AppBackground.scrimLevels）
+                    let levels = AppBackground.shared.scrimLevels(dark: colorScheme == .dark)
+                    LinearGradient(stops: levels.enumerated().map { i, level in
+                        Gradient.Stop(color: Theme.bg.opacity(level),
+                                      location: levels.count == 1 ? 0 : CGFloat(i) / CGFloat(levels.count - 1))
+                    }, startPoint: .top, endPoint: .bottom)
                 } else {
                     WindowGlass()
                     Theme.bg.opacity(0.72)
