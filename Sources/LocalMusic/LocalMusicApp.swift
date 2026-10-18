@@ -87,6 +87,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // 按「外观」设置（默认深色，和 Porthole 一样）：菜单、弹窗、播放队列浮窗也跟着变
         NSApp.appearance = AppearanceMode.current.nsAppearance
         NSApp.activate(ignoringOtherApps: true)
+        // 没关掉「自动检查更新」就过几秒查一次 GitHub 上的最新版本，有新版本弹卡片
+        AppUpdate.shared.checkOnLaunch()
         // 主窗口出现在鼠标所在的屏幕上（启动时、主窗口关掉后重新打开时）
         placeNextMainWindow = true
         mainObserver = NotificationCenter.default.addObserver(forName: NSWindow.didBecomeMainNotification,

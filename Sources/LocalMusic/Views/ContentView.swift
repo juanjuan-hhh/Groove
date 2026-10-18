@@ -239,6 +239,9 @@ struct TopBar: View {
                 })) {
                     ForEach(AppearanceMode.allCases) { Text($0.label).tag($0) }
                 }
+                Divider()
+                // 打开版本信息卡片，里面可以检查更新
+                Button("当前版本 \(AppUpdate.version)") { UpdateCards.showAbout() }
             } label: {
                 Image(systemName: "gearshape").font(.system(size: 13))
                     .foregroundStyle(Theme.text2)
