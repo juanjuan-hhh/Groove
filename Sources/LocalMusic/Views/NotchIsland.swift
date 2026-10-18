@@ -1,8 +1,9 @@
 import AppKit
 import SwiftUI
 
-/// 悬浮球吸附在刘海上时显示的东西：刘海往下长出一块纯黑的底（和刘海连成一片），里面是当前这句歌词
-/// （开了「显示两行歌词」时下面再加淡一点的下一句）。没有逐句歌词时显示歌名（两行时下面是歌手）。
+/// 悬浮球吸附在刘海上时显示的东西：刘海下面隔一小段悬着一个歌词胶囊，样子和球旁边的歌词胶囊一样
+/// （玻璃底、字号跟着「歌词胶囊大小」）；开了「显示两行歌词」时下面再加淡一点的下一句。
+/// 没有逐句歌词时显示歌名（两行时下面是歌手）。
 struct NotchIslandView: View {
     @Environment(PlayerController.self) private var player
     @AppStorage(FloatingBall.twoLinesKey) private var twoLines = false
@@ -13,48 +14,56 @@ struct NotchIslandView: View {
         let notch = ball.islandNotchSize
         let open = ball.islandExpanded
         let (line, next) = lines
-        let pad = 18 * s
+        let pad = 16 * s
         let textWidth = max(Self.width(of: line, size: 14 * s, weight: .semibold),
-                            twoLines ? Self.width(of: next, size: 11.5 * s, weight: .medium) : 0)
+                            twoLines ? Self.width(of: next, size: 11 * s, weight: .medium) : 0)
         // 至少和刘海一样宽，歌词长就往两边变宽，最宽到 islandMaxWidth
-        let bodyWidth = open ? min(ball.islandMaxWidth, max(notch.width, textWidth + pad * 2)) : notch.width
-        let contentHeight = ball.islandContentHeight
-        let ear = open ? FloatingBall.islandEar : 0
+        let capsuleWidth = min(ball.islandMaxWidth, max(notch.width, textWidth + pad * 2))
+        let height = ball.islandContentHeight
+        let radius = 18 * s
 
-        NotchShape(ear: ear, radius: open ? 16 * s : 8)
-            .fill(Color.black)
-            .frame(width: bodyWidth + ear * 2, height: notch.height + (open ? contentHeight : 0))
-            .overlay(alignment: .bottom) {
-                VStack(spacing: 2 * s) {
-                    // 换句时新的一句从下面滑上来、旧的往上滑走
-                    ZStack {
-                        Text(line)
-                            .font(.ui(14 * s, .semibold))
-                            .foregroundStyle(Theme.cream)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                            .id(line)
-                            .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity),
-                                                    removal: .move(edge: .top).combined(with: .opacity)))
-                    }
-                    if twoLines {
-                        Text(next)
-                            .font(.ui(11.5 * s, .medium))
-                            .foregroundStyle(Theme.cream.opacity(0.5))
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                            .id(next)
-                            .transition(.opacity)
-                    }
-                }
-                .frame(width: max(0, bodyWidth - pad * 2 + 8 * s), height: contentHeight)
-                .clipped()
-                .opacity(open ? 1 : 0)
+        VStack(spacing: 2 * s) {
+            // 换句时新的一句从下面滑上来、旧的往上滑走
+            ZStack {
+                Text(line)
+                    .font(.ui(14 * s, .semibold))
+                    .foregroundStyle(Theme.text)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .id(line)
+                    .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity),
+                                            removal: .move(edge: .top).combined(with: .opacity)))
             }
-            .animation(.easeInOut(duration: 0.35), value: line)
-            .animation(.spring(response: 0.42, dampingFraction: 0.82), value: bodyWidth)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .help("双击打开主窗口，往下拖变回悬浮球")
+            if twoLines {
+                Text(next)
+                    .font(.ui(11 * s, .medium))
+                    .foregroundStyle(Theme.text2)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .id(next)
+                    .transition(.opacity)
+            }
+        }
+        .padding(.horizontal, pad)
+        .frame(width: capsuleWidth, height: height)
+        .clipped()
+        .background {
+            ZStack {
+                GlassBackground(cornerRadius: radius)
+                RoundedRectangle(cornerRadius: radius, style: .continuous).fill(Theme.card.opacity(0.35))
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+        .animation(.easeInOut(duration: 0.35), value: line)
+        .animation(.spring(response: 0.42, dampingFraction: 0.82), value: capsuleWidth)
+        // 从刘海里弹出来：收着的时候缩小、往上躲进刘海、透明
+        .scaleEffect(open ? 1 : 0.4, anchor: .top)
+        .offset(y: open ? 0 : -(FloatingBall.islandGap + height / 2))
+        .opacity(open ? 1 : 0)
+        .padding(.top, notch.height + FloatingBall.islandGap)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .help("双击打开主窗口，往下拖变回悬浮球")
     }
 
     /// 显示的两行：有逐句歌词时是当前句（前奏里先显示第一句）+ 下一句，跳过空行；
@@ -82,33 +91,5 @@ struct NotchIslandView: View {
             font = NSFont(descriptor: rounded, size: size) ?? font
         }
         return ceil((text as NSString).size(withAttributes: [.font: font]).width)
-    }
-}
-
-/// 刘海延伸出来的形状：顶边贴着屏幕，两个上角往外翘一点小弧接到屏幕边上（像真的刘海），下面两个角是圆角
-struct NotchShape: Shape {
-    var ear: CGFloat
-    var radius: CGFloat
-
-    var animatableData: AnimatablePair<CGFloat, CGFloat> {
-        get { AnimatablePair(ear, radius) }
-        set { ear = newValue.first; radius = newValue.second }
-    }
-
-    func path(in rect: CGRect) -> Path {
-        let w = rect.width, h = rect.height
-        let e = min(ear, h / 2)
-        let r = max(0, min(radius, (w - e * 2) / 2, h - e))
-        var p = Path()
-        p.move(to: CGPoint(x: rect.minX, y: rect.minY))
-        p.addQuadCurve(to: CGPoint(x: rect.minX + e, y: rect.minY + e), control: CGPoint(x: rect.minX + e, y: rect.minY))
-        p.addLine(to: CGPoint(x: rect.minX + e, y: rect.minY + h - r))
-        p.addQuadCurve(to: CGPoint(x: rect.minX + e + r, y: rect.minY + h), control: CGPoint(x: rect.minX + e, y: rect.minY + h))
-        p.addLine(to: CGPoint(x: rect.minX + w - e - r, y: rect.minY + h))
-        p.addQuadCurve(to: CGPoint(x: rect.minX + w - e, y: rect.minY + h - r), control: CGPoint(x: rect.minX + w - e, y: rect.minY + h))
-        p.addLine(to: CGPoint(x: rect.minX + w - e, y: rect.minY + e))
-        p.addQuadCurve(to: CGPoint(x: rect.minX + w, y: rect.minY), control: CGPoint(x: rect.minX + w - e, y: rect.minY))
-        p.closeSubpath()
-        return p
     }
 }

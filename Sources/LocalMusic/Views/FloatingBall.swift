@@ -743,27 +743,27 @@ final class FloatingBall {
     }
 
     // MARK: 吸附到刘海（像灵动岛）
-    // 球拖到刘海附近松手就吸上去：球藏起来，刘海往下长出一块黑色的胶囊显示歌词，看起来像刘海变大了。
+    // 球拖到刘海附近松手就吸上去：球藏起来，刘海下面隔一小段悬着一个歌词胶囊（和球旁边的歌词胶囊一个样子）。
     // 往下拖这块胶囊就变回悬浮球；双击回主窗口；右键和球的菜单一样。没有刘海的屏幕不会吸附。
 
     /// 记着是不是吸附在刘海上（下次打开悬浮球还在刘海上）
     static let islandKey = "floatingBallIsland"
     /// 吸附在刘海上
     private(set) var inIsland = false
-    /// 刘海下面的歌词展开了（刚吸上去 / 离开时从刘海大小弹开、收回）
+    /// 刘海下面的歌词胶囊出来了（刚吸上去时从刘海里弹出来，离开时缩回去）
     private(set) var islandExpanded = false
-    /// 刘海的大小（界面按它画黑色的底）
+    /// 刘海的大小（胶囊放在它下面，至少和它一样宽）
     private(set) var islandNotchSize = CGSize(width: 200, height: 32)
     @ObservationIgnored private var islandPanel: NSPanel?
     @ObservationIgnored private var islandNotch: NSRect?
     @ObservationIgnored private var screenObserver: Any?
 
-    /// 黑底两边往上翘的小弧（像刘海和屏幕边连起来的地方）
-    static let islandEar: CGFloat = 10
+    /// 胶囊和刘海下沿之间空出来的距离
+    static let islandGap: CGFloat = 7
     /// 歌词最宽到这么宽（再长就省略号）
     var islandMaxWidth: CGFloat { max(islandNotchSize.width, 420 * lyricScale) }
     /// 刘海下面放歌词的高度
-    var islandContentHeight: CGFloat { ((Self.twoLines ? 50 : 32) * lyricScale).rounded() }
+    var islandContentHeight: CGFloat { lyricHeight }
 
     /// 屏幕上刘海的位置（全局坐标）；没有刘海返回 nil
     static func notchRect(of screen: NSScreen) -> NSRect? {
@@ -873,12 +873,12 @@ final class FloatingBall {
         moveWithMouse(mouse)
     }
 
-    /// 刘海窗口：宽度按最长的歌词留够，高度 = 刘海 + 歌词；顶边贴着屏幕最上面，左右以刘海为中心。
-    /// 黑底只画在歌词需要的地方，其余透明，点击会穿过去
+    /// 刘海窗口：宽度按最长的歌词留够，高度 = 刘海 + 空隙 + 胶囊；顶边贴着屏幕最上面，左右以刘海为中心。
+    /// 只有胶囊那块不透明，其余透明，点击会穿过去
     private func positionIsland() {
         guard let islandPanel, let notch = islandNotch else { return }
-        let width = islandMaxWidth + Self.islandEar * 2
-        let height = notch.height + islandContentHeight + 4
+        let width = islandMaxWidth + 24
+        let height = notch.height + Self.islandGap + islandContentHeight + 16
         islandPanel.setFrame(NSRect(x: notch.midX - width / 2, y: notch.maxY - height, width: width, height: height),
                              display: true)
     }
