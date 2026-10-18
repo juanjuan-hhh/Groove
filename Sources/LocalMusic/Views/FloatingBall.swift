@@ -11,7 +11,7 @@ final class FloatingBall {
 
     /// 默认大小；设置里可以在 sizeRange 之间调（记在 sizeKey 里）
     static let defaultSize: CGFloat = 96
-    static let sizeRange: ClosedRange<CGFloat> = 64...160
+    static let sizeRange: ClosedRange<CGFloat> = 40...160
     static let sizeKey = "floatingBallSize"
     static var size: CGFloat {
         let saved = UserDefaults.standard.double(forKey: sizeKey)
@@ -76,7 +76,9 @@ final class FloatingBall {
         return saved > 0 ? min(lyricSizeRange.upperBound, max(lyricSizeRange.lowerBound, saved)) : 1
     }
     /// 歌词胶囊实际的缩放：跟着球的大小，再乘上自己的大小
-    private(set) var lyricScale: CGFloat = FloatingBall.size / FloatingBall.defaultSize * FloatingBall.lyricSize
+    private(set) var lyricScale: CGFloat = FloatingBall.lyricBase(FloatingBall.size) * FloatingBall.lyricSize
+    /// 歌词胶囊跟着球一起变大变小；球调得很小（小于 64，多半是为了贴上边时不超出菜单栏）时歌词不再跟着变小，免得看不清
+    static func lyricBase(_ size: CGFloat) -> CGFloat { max(size, 64) / defaultSize }
     private static let originKey = "floatingBallOrigin"
 
     /// 鼠标是否在球上（用 AppKit 的跟踪区域检测，Groove 不在前台时也有效）
@@ -148,7 +150,7 @@ final class FloatingBall {
         tuckedEdge = nil   // 一出来是完整的球（转动的封面），等藏进去时才换成半圆的样子
         ballSize = Self.size
         scale = Self.size / Self.defaultSize
-        lyricScale = scale * Self.lyricSize
+        lyricScale = Self.lyricBase(Self.size) * Self.lyricSize
         panel.setContentSize(NSSize(width: Self.size, height: Self.size))
         installMouseMonitor()
         watchBackdropEvents()
@@ -508,7 +510,7 @@ final class FloatingBall {
         let size = min(Self.sizeRange.upperBound, max(Self.sizeRange.lowerBound, value.rounded()))
         UserDefaults.standard.set(Double(size), forKey: Self.sizeKey)
         scale = size / Self.defaultSize
-        lyricScale = scale * Self.lyricSize
+        lyricScale = Self.lyricBase(size) * Self.lyricSize
         guard let panel, panel.isVisible, !tucked else {
             ballSize = size
             return
@@ -528,7 +530,7 @@ final class FloatingBall {
     func setLyricSize(_ value: CGFloat) {
         let v = min(Self.lyricSizeRange.upperBound, max(Self.lyricSizeRange.lowerBound, value))
         UserDefaults.standard.set(Double(v), forKey: Self.lyricSizeKey)
-        lyricScale = scale * v
+        lyricScale = Self.lyricBase(scale * Self.defaultSize) * v
         if let panel { positionLyricPanel(for: tucked ? (shownFrame ?? panel.frame) : panel.frame) }
         positionIsland()
     }
@@ -1299,7 +1301,7 @@ struct FloatingBallView: View {
     /// 藏起一半时变小
     private var size: CGFloat { FloatingBall.shared.ballSize }
     /// 进度环粗细：跟着设置里的悬浮球大小一起变粗变细（贴边缩小时不变）
-    private var ring: CGFloat { 3.5 * FloatingBall.shared.scale }
+    private var ring: CGFloat { max(2, 3.5 * FloatingBall.shared.scale) }
     /// 进度头圆点的直径
     private var knob: CGFloat { ring * 1.8 }
     /// 进度环往里收这么多，圆点整个落在球里面，不会被圆形边缘裁掉半个
