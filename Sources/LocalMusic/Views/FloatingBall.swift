@@ -91,6 +91,8 @@ final class FloatingBall {
     private(set) var lyricOnLeft = true
     /// 贴在上 / 下边时歌词条放在球的下面 / 上面，文字居中
     private(set) var lyricCentered = false
+    /// 贴在上边时歌词条缩小放进菜单栏里（球旁边），只显示一行
+    private(set) var lyricInMenuBar = false
     @ObservationIgnored private weak var mainWindow: NSWindow?
 
     /// 球露着，或者吸附在刘海上（这时球藏起来，只显示刘海下面的歌词）
@@ -1106,7 +1108,7 @@ final class FloatingBall {
     // MARK: 歌词条
 
     var lyricWidth: CGFloat { 320 * lyricScale }
-    var lyricHeight: CGFloat { ((Self.twoLines ? 58 : 36) * lyricScale).rounded() }
+    var lyricHeight: CGFloat { ((Self.twoLines && !lyricInMenuBar ? 58 : 36) * lyricScale).rounded() }
 
     /// 「显示两行歌词」：当前这句 + 下一句（小一点、淡一点）
     static let twoLinesKey = "floatingLyricsTwoLines"
@@ -1136,7 +1138,24 @@ final class FloatingBall {
 
     private func positionLyricPanel(for ball: NSRect) {
         guard let lyricPanel else { return }
-        // 贴在上边：歌词条放在球（藏起来时是露出来的那半个）下面；贴在下边：放在上面。左右以球为中心，不出屏幕
+        let normalScale = Self.lyricBase(Self.size) * Self.lyricSize
+        // 贴在上边：歌词条缩小放进菜单栏里，在球旁边（朝屏幕里面），上下在菜单栏正中；只显示一行
+        if dock == .top, dragStart == nil, let screen = panel?.screen ?? NSScreen.main,
+           case let bar = screen.frame.maxY - screen.visibleFrame.maxY, bar > 16 {
+            if !lyricInMenuBar { lyricInMenuBar = true }
+            if lyricCentered { lyricCentered = false }
+            let fit = min(normalScale, (bar - 4) / 36)
+            if fit != lyricScale { lyricScale = fit }
+            let onLeft = lyricSide(for: ball)
+            if onLeft != lyricOnLeft { lyricOnLeft = onLeft }
+            let x = onLeft ? ball.minX - lyricGap - lyricWidth : ball.maxX + lyricGap
+            let y = screen.frame.maxY - bar / 2 - lyricHeight / 2
+            lyricPanel.setFrame(NSRect(x: x, y: y, width: lyricWidth, height: lyricHeight), display: false)
+            return
+        }
+        if lyricInMenuBar { lyricInMenuBar = false }
+        if lyricScale != normalScale { lyricScale = normalScale }
+        // 贴在下边（或者上边没有菜单栏时）：歌词条放在球的上面 / 下面，左右以球为中心，不出屏幕
         if dock == .top || dock == .bottom, dragStart == nil, let screen = panel?.screen ?? NSScreen.main {
             if !lyricCentered { lyricCentered = true }
             let visible = ball.intersection(screen.frame)
@@ -1552,7 +1571,9 @@ private struct FloatingLyricView: View {
     @Environment(PlayerController.self) private var player
     @AppStorage(FloatingLyricsMode.key) private var mode: FloatingLyricsMode = .always
     @AppStorage(FloatingLyricsMode.whenTuckedKey) private var showWhenTucked = false
-    @AppStorage(FloatingBall.twoLinesKey) private var twoLines = false
+    @AppStorage(FloatingBall.twoLinesKey) private var twoLinesSetting = false
+    /// 歌词条缩在菜单栏里时只显示一行
+    private var twoLines: Bool { twoLinesSetting && !FloatingBall.shared.lyricInMenuBar }
 
     var body: some View {
         let ball = FloatingBall.shared
