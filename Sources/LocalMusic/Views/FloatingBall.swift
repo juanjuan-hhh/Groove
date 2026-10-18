@@ -1142,7 +1142,7 @@ private struct FloatingLyricView: View {
     /// 当前句前后几行，每行按「离当前句差几行」往上 / 往下摆。换句时每行的位置一起动起来，看起来就是整列往上推
     private func scrollingRows(scale s: CGFloat, align: Alignment) -> some View {
         let rows = textRows
-        let current = player.currentLyricIndex ?? -1
+        let current = shownIndex ?? -1
         // 当前句在 rows 里的位置（当前是空行时取它前面最近的一句）
         let pos = rows.lastIndex { $0.index <= current } ?? -1
         let pitch = (twoLines ? 19 : 26) * s
@@ -1178,16 +1178,25 @@ private struct FloatingLyricView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: align)
     }
 
+    /// 胶囊当作「当前句」的那一行：一般就是正在唱的这句；
+    /// 前奏里（还没到第一句有字的歌词）先把第一句有字的歌词当成当前句显示出来。没有逐句歌词时为 nil
+    private var shownIndex: Int? {
+        guard player.lyricsState == .loaded, player.lyrics.first?.time != nil else { return nil }
+        let rows = textRows
+        if let c = player.currentLyricIndex, rows.contains(where: { $0.index <= c }) { return c }
+        return rows.first?.index
+    }
+
     /// 当前这一句；没有逐句歌词时为空（不显示歌词条）
     private var currentLine: String {
-        guard player.lyricsState == .loaded, let i = player.currentLyricIndex, player.lyrics.indices.contains(i) else { return "" }
+        guard let i = shownIndex, player.lyrics.indices.contains(i) else { return "" }
         return player.lyrics[i].text.trimmingCharacters(in: .whitespaces)
     }
 
     /// 下一句（跳过空行）
     private var nextLine: String {
         guard player.lyricsState == .loaded else { return "" }
-        let start = (player.currentLyricIndex ?? -1) + 1
+        let start = (shownIndex ?? -1) + 1
         guard start < player.lyrics.count else { return "" }
         return player.lyrics[start...].lazy.map { $0.text.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty } ?? ""
     }
