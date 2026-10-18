@@ -2,13 +2,16 @@ import AppKit
 import QuartzCore
 
 /// 切换深色 / 浅色时主窗口的过渡：先把旧样子拍下来盖在最上面，再换外观。
-/// 换成浅色：新样子像一个圆从窗口正中间扩散出来，直到铺满（在旧截图上挖一个越来越大的圆洞）；
-/// 换成深色反过来：深色从四周往中间包围回来（旧截图只留中间一个越来越小的圆）。
+/// 圆心是顶栏的太阳 / 月亮按钮（不知道按钮在哪就用窗口正中间）。
+/// 换成浅色：新样子像一个圆从按钮扩散出来，直到铺满（在旧截图上挖一个越来越大的圆洞）；
+/// 换成深色反过来：深色从四周往按钮包围回来（旧截图只留按钮那里一个越来越小的圆）。
 /// 圆的边是柔和渐变的，不是一条硬线。
 @MainActor
 enum ThemeReveal {
-    private static let duration: CFTimeInterval = 0.6
     private static weak var overlay: CALayer?
+    private static let duration: CFTimeInterval = 0.6
+    /// 太阳 / 月亮按钮在窗口里的位置（SwiftUI 全局坐标，左上为原点），按钮自己报上来
+    static var originRect: CGRect?
 
     /// 换外观的那一下包在这里面；toDark 是换完后是不是深色。窗口不在屏幕上就直接换，不做动画
     static func perform(toDark: Bool, _ change: () -> Void) {
@@ -42,14 +45,22 @@ enum ThemeReveal {
         // 菜单、毛玻璃这些 AppKit 部分也马上换（原来要等 SwiftUI 下一轮才换，正好撞上动画，会卡一下）
         applyAppKitAppearance()
 
-        // 遮罩：一个以窗口中心为圆心的径向渐变，透明的部分透出下面的新样子，
+        // 遮罩：一个以按钮为圆心的径向渐变，透明的部分透出下面的新样子，
         // 圆的边上留一圈 2×feather 宽的渐变，黑白交界是柔和的而不是一条硬线。
         // 换浅色：圆里透明、圆外留旧截图，圆越来越大；换深色反过来，圆里留旧截图、圆越来越小。
         // 动的是渐变的 locations：边从中心的一个点长出来，再以固定宽度一直走到超出窗口四角
         // （换深色反过来，最后收成一个点），开头结尾都不会突然冒出或剩下一团雾
         let bounds = layer.bounds
+        var center = CGPoint(x: bounds.midX, y: bounds.midY)
+        if let rect = originRect {
+            let p = frameView.convert(CGPoint(x: rect.midX, y: rect.midY), from: content)
+            if bounds.contains(p) { center = p }
+        }
         let feather: CGFloat = 28
-        let fullRadius = hypot(bounds.width, bounds.height) / 2 + 2
+        // 半径要够到离圆心最远的那个角
+        let fullRadius = max(hypot(center.x, center.y), hypot(bounds.width - center.x, center.y),
+                             hypot(center.x, bounds.height - center.y),
+                             hypot(bounds.width - center.x, bounds.height - center.y)) + 2
         let outer = fullRadius + feather * 2
         let edge = feather * 2 / outer
         let small: [NSNumber] = [0, NSNumber(value: Double(edge))]
@@ -60,8 +71,9 @@ enum ThemeReveal {
         let mask = CAGradientLayer()
         mask.type = .radial
         mask.frame = bounds
-        mask.startPoint = CGPoint(x: 0.5, y: 0.5)
-        mask.endPoint = CGPoint(x: 0.5 + outer / bounds.width, y: 0.5 + outer / bounds.height)
+        let start = CGPoint(x: center.x / bounds.width, y: center.y / bounds.height)
+        mask.startPoint = start
+        mask.endPoint = CGPoint(x: start.x + outer / bounds.width, y: start.y + outer / bounds.height)
         let clear = CGColor(gray: 0, alpha: 0), solid = CGColor(gray: 0, alpha: 1)
         mask.colors = toDark ? [solid, clear] : [clear, solid]
         mask.locations = steps[0]

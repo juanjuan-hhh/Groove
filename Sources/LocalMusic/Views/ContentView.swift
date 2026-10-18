@@ -298,6 +298,8 @@ private struct AppearanceToggle: View {
         }
         .buttonStyle(.plain)
         .iconBacking(27)
+        // 换外观的圆形过渡从这个按钮扩散出去 / 收回来
+        .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { ThemeReveal.originRect = $0 }
         .help(scheme == .dark ? "切换到浅色" : "切换到深色")
     }
 
