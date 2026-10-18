@@ -37,11 +37,6 @@ final class FloatingBall {
     static var onTop: Bool { UserDefaults.standard.object(forKey: onTopKey) as? Bool ?? true }
     static var windowLevel: NSWindow.Level { onTop ? .statusBar : .normal }
 
-    /// 「系统壁纸取色」：贴边时按壁纸深浅选黑 / 白（默认关）。关着时只读系统自带壁纸（不用权限），
-    /// 自己的图片放在桌面、文稿等文件夹里一读 macOS 就会弹权限框，所以不读，按 Groove 的外观选
-    static let wallpaperColorKey = "floatingBallWallpaperColor"
-    static var wallpaperColor: Bool { UserDefaults.standard.bool(forKey: wallpaperColorKey) }
-
     /// 「贴边颜色」：贴边半圆球上的进度环、圆点、音柱用什么颜色。
     /// auto 按球后面的深浅自动选；有些壁纸读不到（比如「照片」App 设的壁纸），自动会选错，就手动定成白色或黑色
     static let tuckColorKey = "floatingBallTuckColor"
@@ -50,12 +45,6 @@ final class FloatingBall {
     func setTuckColor(_ value: String) {
         UserDefaults.standard.set(value, forKey: Self.tuckColorKey)
         if let frame = panel?.frame { updateBackdrop(for: frame) }
-    }
-
-    func setWallpaperColor(_ on: Bool) {
-        UserDefaults.standard.set(on, forKey: Self.wallpaperColorKey)
-        Self.wallpaperCache = nil
-        if tucked, let frame = panel?.frame { updateBackdrop(for: frame) }
     }
 
     func setOnTop(_ on: Bool) {
@@ -136,9 +125,13 @@ final class FloatingBall {
         updateDock(for: frame)
         if on {
             let target = snapped(frame, on: panel.screen ?? NSScreen.main)
-            if target != frame { panel.setFrame(target, display: true); positionLyricPanel(for: target) }
+            if target != frame { panel.setFrame(target, display: true) }
             updateDock(for: target)
+            positionLyricPanel(for: target)
             if !hovering { scheduleTuck(after: 0.8) }
+        } else {
+            // 不贴边了：菜单栏里的歌词马上回到球旁边的胶囊里
+            positionLyricPanel(for: frame)
         }
     }
 
@@ -347,6 +340,10 @@ final class FloatingBall {
     /// 贴在左 / 右 / 上 / 下边、而且那一侧没有别的显示器时，才算「贴边」（贴在角上时算左右边）。
     /// 有刘海的屏幕上，正对着刘海的那段上边不算（那里是吸到刘海上）
     private func updateDock(for frame: NSRect) {
+        defer {
+            // 不再贴在上边了（关掉自动贴边、改大小、换屏幕……）：菜单栏里的歌词马上回到球旁边的胶囊里
+            if lyricInMenuBar, dock != .top { positionLyricPanel(for: frame) }
+        }
         dock = nil
         shownFrame = frame
         guard let screen = panel?.screen ?? NSScreen.main else { return }
@@ -629,9 +626,6 @@ final class FloatingBall {
         }
         colorItem.submenu = colorMenu
         menu.addItem(colorItem)
-        menu.addItem(item("系统壁纸取色", checked: Self.wallpaperColor, enabled: Self.tuckColor == "auto") {
-            FloatingBall.shared.setWallpaperColor(!FloatingBall.wallpaperColor)
-        })
         menu.addItem(item("读取屏幕颜色（需要屏幕录制权限）",
                           checked: ScreenColorSampler.enabled && ScreenColorSampler.granted) {
             ScreenColorSampler.toggle()
@@ -776,7 +770,8 @@ final class FloatingBall {
             image = cachedImage
         } else {
             let path = url.standardizedFileURL.path
-            let allowed = wallpaperColor || systemWallpaperDirs.contains { path.hasPrefix($0) }
+            // 只读系统自带壁纸（不用权限）；自己的图片放在桌面、文稿等文件夹里一读 macOS 就会弹权限框，所以不读
+            let allowed = systemWallpaperDirs.contains { path.hasPrefix($0) }
             guard allowed, let data = try? Data(contentsOf: url), let small = ArtworkProvider.downsample(data, maxPixel: 256) else {
                 wallpaperCache = (url, nil)
                 return nil
