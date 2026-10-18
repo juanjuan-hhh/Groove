@@ -5,6 +5,8 @@ import ScreenCaptureKit
 /// 刘海歌词胶囊、贴边藏一半的球都用它决定配深色还是浅色；没开、没权限、截不到时返回 nil，调用方按原来的办法猜
 enum ScreenColorSampler {
     static let enabledKey = "floatingBallScreenColor"
+    /// 已经自动向系统要过一次权限（之后只在菜单里点它时再要）
+    static let askedKey = "floatingBallScreenColorAsked"
     /// 默认开着：有权限就直接用，没权限也不会弹任何东西（只有在菜单里点它时才向系统要权限）
     static var enabled: Bool { UserDefaults.standard.object(forKey: enabledKey) as? Bool ?? true }
     static var granted: Bool { CGPreflightScreenCaptureAccess() }

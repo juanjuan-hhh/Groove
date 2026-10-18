@@ -613,6 +613,12 @@ final class FloatingBall {
     /// 不然看桌面壁纸上球所在那一小块的亮度。别的 App 的窗口看不到（那要「屏幕录制」权限），只能按壁纸算。
     /// 开了「读取屏幕颜色」并且有权限时，直接截球后面那一小块看亮度，截不到再按上面的办法猜
     func updateBackdrop(for frame: NSRect) {
+        // 「自动」时最准的是截后面的颜色，要屏幕录制权限：第一次贴边藏起来时向系统要一次（只弹这一次，Groove 也会出现在设置的列表里）
+        if Self.tuckColor == "auto", ScreenColorSampler.enabled, !ScreenColorSampler.granted,
+           !UserDefaults.standard.bool(forKey: ScreenColorSampler.askedKey) {
+            UserDefaults.standard.set(true, forKey: ScreenColorSampler.askedKey)
+            CGRequestScreenCaptureAccess()
+        }
         if Self.tuckColor == "auto", ScreenColorSampler.enabled, ScreenColorSampler.granted {
             guard !ballSampling else { return }
             ballSampling = true
@@ -1321,6 +1327,8 @@ struct FloatingBallView: View {
             .offset(x: mirror * size / 4 + (edge == .right ? 1 : -1) * size * 0.1)   // 往球心挪一点
             .transition(.opacity)
         }
+        // 进度环、音柱、三角都衬一圈反色的淡光：后面深浅判断错了（比如没有屏幕录制权限时）也看得出来
+        .shadow(color: (FloatingBall.shared.backdropIsLight ? Color.white : Color.black).opacity(0.7), radius: 1.5)
         .animation(.easeInOut(duration: 0.2), value: player.isPlaying)
         .allowsHitTesting(false)
     }
