@@ -91,7 +91,7 @@ final class FloatingBall {
     private(set) var lyricOnLeft = true
     /// 贴在上 / 下边时歌词条放在球的下面 / 上面，文字居中
     private(set) var lyricCentered = false
-    /// 贴在上边时歌词条缩小放进菜单栏里（球旁边），只显示一行
+    /// 贴在上边时歌词放进菜单栏里（球旁边）：只显示一行，没有胶囊底，只有字
     private(set) var lyricInMenuBar = false
     @ObservationIgnored private weak var mainWindow: NSWindow?
 
@@ -1139,18 +1139,20 @@ final class FloatingBall {
     private func positionLyricPanel(for ball: NSRect) {
         guard let lyricPanel else { return }
         let normalScale = Self.lyricBase(Self.size) * Self.lyricSize
-        // 贴在上边：歌词条缩小放进菜单栏里，在球旁边（朝屏幕里面），上下在菜单栏正中；只显示一行
+        // 贴在上边：歌词放进菜单栏里，在球旁边（朝屏幕里面），上下在菜单栏正中；只显示一行，不要胶囊底，只有字
         if dock == .top, dragStart == nil, let screen = panel?.screen ?? NSScreen.main,
            case let bar = screen.frame.maxY - screen.visibleFrame.maxY, bar > 16 {
             if !lyricInMenuBar { lyricInMenuBar = true }
             if lyricCentered { lyricCentered = false }
-            let fit = min(normalScale, (bar - 4) / 36)
+            // 没有胶囊底，只有字，字号和菜单栏上的字差不多（13pt）
+            let fit = min(normalScale, 13 / 14)
             if fit != lyricScale { lyricScale = fit }
             let onLeft = lyricSide(for: ball)
             if onLeft != lyricOnLeft { lyricOnLeft = onLeft }
             let x = onLeft ? ball.minX - lyricGap - lyricWidth : ball.maxX + lyricGap
-            let y = screen.frame.maxY - bar / 2 - lyricHeight / 2
-            lyricPanel.setFrame(NSRect(x: x, y: y, width: lyricWidth, height: lyricHeight), display: false)
+            let height = bar - 2
+            let y = screen.frame.maxY - bar / 2 - height / 2
+            lyricPanel.setFrame(NSRect(x: x, y: y, width: lyricWidth, height: height), display: false)
             return
         }
         if lyricInMenuBar { lyricInMenuBar = false }
@@ -1574,6 +1576,9 @@ private struct FloatingLyricView: View {
     @AppStorage(FloatingBall.twoLinesKey) private var twoLinesSetting = false
     /// 歌词条缩在菜单栏里时只显示一行
     private var twoLines: Bool { twoLinesSetting && !FloatingBall.shared.lyricInMenuBar }
+    private var inBar: Bool { FloatingBall.shared.lyricInMenuBar }
+    /// 菜单栏上的字的颜色：跟贴边半圆一样按后面的深浅反色（后面浅用黑字，深用白字）
+    private var barTextColor: Color { FloatingBall.shared.backdropIsLight ? .black : .white }
 
     var body: some View {
         let ball = FloatingBall.shared
@@ -1609,14 +1614,17 @@ private struct FloatingLyricView: View {
                 scrollingRows(scale: s, align: rowAlign)
             }
         }
-        .padding(.horizontal, 16 * s)
+        .padding(.horizontal, inBar ? 2 : 16 * s)
         .padding(.vertical, twoLines ? 8 * s : 0)
-        .frame(minHeight: (36 * s).rounded())
+        .frame(minHeight: inBar ? 0 : (36 * s).rounded())
         .clipped()
         .background {
-            ZStack {
-                GlassBackground(cornerRadius: 18 * s)
-                RoundedRectangle(cornerRadius: 18 * s, style: .continuous).fill(Theme.card.opacity(0.35))
+            // 在菜单栏里时不要胶囊底，只有字
+            if !inBar {
+                ZStack {
+                    GlassBackground(cornerRadius: 18 * s)
+                    RoundedRectangle(cornerRadius: 18 * s, style: .continuous).fill(Theme.card.opacity(0.35))
+                }
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 18 * s, style: .continuous))
@@ -1662,7 +1670,9 @@ private struct FloatingLyricView: View {
                     let shown = isCurrent || (twoLines && k == pos + 1)
                     Text(rows[k].text)
                         .font(.ui(14 * s, .semibold))
-                        .foregroundStyle(isCurrent ? Theme.text : Theme.text2)
+                        .foregroundStyle(inBar ? barTextColor.opacity(isCurrent ? 1 : 0.6) : isCurrent ? Theme.text : Theme.text2)
+                        // 菜单栏上没有底，衬一圈很淡的反色光，背景花的时候也看得清
+                        .shadow(color: inBar ? barTextColor == .black ? .white.opacity(0.5) : .black.opacity(0.5) : .clear, radius: 1)
                         .lineLimit(1)
                         .truncationMode(.tail)
                         // 字号换不出平滑动画，用缩放：不是当前句时缩到 11/14，靠球那一边对齐；
