@@ -89,7 +89,8 @@ final class FloatingBall {
     private(set) var lyricOnLeft = true
     @ObservationIgnored private weak var mainWindow: NSWindow?
 
-    var isShown: Bool { panel?.isVisible ?? false }
+    /// 球露着，或者吸附在刘海上（这时球藏起来，只显示刘海下面的歌词）
+    var isShown: Bool { (panel?.isVisible ?? false) || (islandPanel?.isVisible ?? false) }
 
     /// 主窗口被悬浮球模式收起来了
     private var mainHidden: Bool {
@@ -141,19 +142,25 @@ final class FloatingBall {
         let panel = self.panel ?? makePanel(player: player)
         self.panel = panel
         panel.setFrameOrigin(savedOrigin())
-        panel.hasShadow = true
-        panel.orderFrontRegardless()
-        panel.invalidateShadow()
-        attachLyricPanel(player: player)
         tucked = false
         tuckedEdge = nil   // 一出来是完整的球（转动的封面），等藏进去时才换成半圆的样子
         ballSize = Self.size
         scale = Self.size / Self.defaultSize
         lyricScale = scale * Self.lyricSize
         panel.setContentSize(NSSize(width: Self.size, height: Self.size))
+        installMouseMonitor()
+        // 上次是吸附在刘海上收起来的：直接回到刘海上
+        if UserDefaults.standard.bool(forKey: Self.islandKey), let screen = Self.notchScreen() {
+            enterIsland(on: screen, animated: false)
+            return
+        }
+        panel.hasShadow = true
+        panel.alphaValue = 1
+        panel.orderFrontRegardless()
+        panel.invalidateShadow()
+        attachLyricPanel(player: player)
         updateDock(for: panel.frame)
         scheduleTuck(after: 1.5)
-        installMouseMonitor()
     }
 
     /// 回到主窗口。一直显示悬浮球时球留着，否则收起来
@@ -170,14 +177,21 @@ final class FloatingBall {
     }
 
     private func hideBall() {
-        guard let panel, panel.isVisible else { return }
+        guard let panel, isShown else { return }
         backdropTimer?.invalidate()
         backdropTimer = nil
         closeQueue()
         cancelTuck()
         removeMouseMonitor()
-        UserDefaults.standard.set(NSStringFromPoint((tucked ? shownFrame : nil)?.origin ?? panel.frame.origin),
-                                  forKey: Self.originKey)
+        // 吸附在刘海上时球的位置不算数，留着上次的；「吸附在刘海上」也记着，下次出来还在刘海上
+        if inIsland {
+            inIsland = false
+            islandExpanded = false
+            islandPanel?.orderOut(nil)
+        } else {
+            UserDefaults.standard.set(NSStringFromPoint((tucked ? shownFrame : nil)?.origin ?? panel.frame.origin),
+                                      forKey: Self.originKey)
+        }
         tucked = false
         tuckedEdge = nil   // 上次藏着一半时退出：清掉，免得下次出来时完整的球显示成半圆的样子
         if let lyricPanel {
@@ -269,6 +283,11 @@ final class FloatingBall {
     func endDrag() {
         dragStart = nil
         guard let panel else { return }
+        // 拖到刘海附近松手：吸到刘海上
+        if let screen = islandScreen(near: panel.frame) {
+            enterIsland(on: screen, animated: true)
+            return
+        }
         let target = snapped(panel.frame, on: panel.screen ?? NSScreen.main)
         if target != panel.frame {
             NSAnimationContext.runAnimationGroup { context in
@@ -478,6 +497,7 @@ final class FloatingBall {
         UserDefaults.standard.set(Double(v), forKey: Self.lyricSizeKey)
         lyricScale = scale * v
         if let panel { positionLyricPanel(for: tucked ? (shownFrame ?? panel.frame) : panel.frame) }
+        positionIsland()
     }
 
     /// 无边框的小卡片（和 App 里其他卡片一样的配色），不抢焦点
@@ -525,6 +545,11 @@ final class FloatingBall {
         }
         guard let player = menuPlayer else { return menu }
         menu.addItem(item("打开主窗口") { FloatingBall.shared.exit() })
+        if inIsland {
+            menu.addItem(item("变回悬浮球") { FloatingBall.shared.leaveIsland() })
+        } else if let screen = Self.notchScreen() {
+            menu.addItem(item("吸附到刘海") { FloatingBall.shared.enterIsland(on: screen, animated: true) })
+        }
         menu.addItem(.separator())
         if let track = player.current {
             let info = NSMenuItem(title: "\(track.title) — \(track.artist)", action: nil, keyEquivalent: "")
@@ -717,6 +742,182 @@ final class FloatingBall {
         return host
     }
 
+    // MARK: 吸附到刘海（像灵动岛）
+    // 球拖到刘海附近松手就吸上去：球藏起来，刘海往下长出一块黑色的胶囊显示歌词，看起来像刘海变大了。
+    // 往下拖这块胶囊就变回悬浮球；双击回主窗口；右键和球的菜单一样。没有刘海的屏幕不会吸附。
+
+    /// 记着是不是吸附在刘海上（下次打开悬浮球还在刘海上）
+    static let islandKey = "floatingBallIsland"
+    /// 吸附在刘海上
+    private(set) var inIsland = false
+    /// 刘海下面的歌词展开了（刚吸上去 / 离开时从刘海大小弹开、收回）
+    private(set) var islandExpanded = false
+    /// 刘海的大小（界面按它画黑色的底）
+    private(set) var islandNotchSize = CGSize(width: 200, height: 32)
+    @ObservationIgnored private var islandPanel: NSPanel?
+    @ObservationIgnored private var islandNotch: NSRect?
+    @ObservationIgnored private var screenObserver: Any?
+
+    /// 黑底两边往上翘的小弧（像刘海和屏幕边连起来的地方）
+    static let islandEar: CGFloat = 10
+    /// 歌词最宽到这么宽（再长就省略号）
+    var islandMaxWidth: CGFloat { max(islandNotchSize.width, 420 * lyricScale) }
+    /// 刘海下面放歌词的高度
+    var islandContentHeight: CGFloat { ((Self.twoLines ? 50 : 32) * lyricScale).rounded() }
+
+    /// 屏幕上刘海的位置（全局坐标）；没有刘海返回 nil
+    static func notchRect(of screen: NSScreen) -> NSRect? {
+        let top = screen.safeAreaInsets.top
+        guard top > 0, let left = screen.auxiliaryTopLeftArea, let right = screen.auxiliaryTopRightArea else { return nil }
+        let width = screen.frame.width - left.width - right.width
+        guard width > 0 else { return nil }
+        return NSRect(x: screen.frame.minX + left.width, y: screen.frame.maxY - top, width: width, height: top)
+    }
+
+    /// 有刘海的屏幕（一般就是 MacBook 自带的屏幕）
+    static func notchScreen() -> NSScreen? {
+        NSScreen.screens.first { notchRect(of: $0) != nil }
+    }
+
+    /// 球松手的位置离哪块屏幕的刘海够近（开着「自动贴边」才吸）
+    private func islandScreen(near frame: NSRect) -> NSScreen? {
+        guard Self.autoDock else { return nil }
+        return NSScreen.screens.first { screen in
+            guard let notch = Self.notchRect(of: screen) else { return false }
+            return notch.minY - frame.maxY < Self.snapDistance
+                && abs(frame.midX - notch.midX) < (notch.width + frame.width) / 2
+        }
+    }
+
+    /// 吸到刘海上：球缩成一个点飞进刘海、淡掉，刘海往下弹出歌词
+    func enterIsland(on screen: NSScreen, animated: Bool) {
+        guard let panel, let notch = Self.notchRect(of: screen) else { return }
+        cancelTuck()
+        closeQueue()
+        dock = nil
+        tucked = false
+        tuckedEdge = nil
+        hovering = false
+        backdropTimer?.invalidate()
+        backdropTimer = nil
+        islandNotch = notch
+        islandNotchSize = notch.size
+        inIsland = true
+        UserDefaults.standard.set(true, forKey: Self.islandKey)
+        if let lyricPanel {
+            panel.removeChildWindow(lyricPanel)
+            lyricPanel.orderOut(nil)
+        }
+        let island = islandPanel ?? makeIslandPanel()
+        islandPanel = island
+        islandExpanded = false
+        positionIsland()
+        island.orderFrontRegardless()
+        if animated && panel.isVisible {
+            let dot = NSRect(x: notch.midX - 8, y: notch.midY - 8, width: 16, height: 16)
+            panel.hasShadow = false
+            withAnimation(.easeIn(duration: 0.22)) { ballSize = 16 }
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.22
+                context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+                panel.animator().setFrame(dot, display: true)
+                panel.animator().alphaValue = 0
+            } completionHandler: {
+                MainActor.assumeIsolated {
+                    let ball = FloatingBall.shared
+                    guard ball.inIsland else { return }
+                    ball.panel?.orderOut(nil)
+                    ball.panel?.alphaValue = 1
+                }
+            }
+        } else {
+            panel.orderOut(nil)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + (animated ? 0.12 : 0.05)) {
+            guard self.inIsland else { return }
+            withAnimation(.spring(response: 0.45, dampingFraction: 0.78)) { self.islandExpanded = true }
+        }
+    }
+
+    /// 离开刘海变回悬浮球。从刘海上往下拖时，球出现在鼠标下面、接着跟着鼠标拖；
+    /// 菜单里点「变回悬浮球」时回到上次球的位置
+    func leaveIsland(dragFrom mouse: NSPoint? = nil) {
+        guard inIsland, let panel, let player = menuPlayer else { return }
+        inIsland = false
+        UserDefaults.standard.set(false, forKey: Self.islandKey)
+        withAnimation(.easeInOut(duration: 0.2)) { islandExpanded = false }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            if !self.inIsland { self.islandPanel?.orderOut(nil) }
+        }
+        let size = Self.size
+        ballSize = size
+        tucked = false
+        tuckedEdge = nil
+        let origin = mouse.map { NSPoint(x: $0.x - size / 2, y: $0.y - size / 2) } ?? savedOrigin()
+        panel.setFrame(NSRect(origin: origin, size: CGSize(width: size, height: size)), display: true)
+        panel.alphaValue = 1
+        panel.hasShadow = true
+        panel.orderFrontRegardless()
+        panel.invalidateShadow()
+        attachLyricPanel(player: player)
+        if let mouse {
+            dragStart = (mouse, panel.frame.origin)
+        } else {
+            updateDock(for: panel.frame)
+            scheduleTuck(after: 1.5)
+        }
+    }
+
+    /// 从刘海上拖下来以后，鼠标还按在刘海的窗口上，移动交给这里让球跟着走
+    fileprivate func islandDragMoved(to mouse: NSPoint) {
+        moveWithMouse(mouse)
+    }
+
+    /// 刘海窗口：宽度按最长的歌词留够，高度 = 刘海 + 歌词；顶边贴着屏幕最上面，左右以刘海为中心。
+    /// 黑底只画在歌词需要的地方，其余透明，点击会穿过去
+    private func positionIsland() {
+        guard let islandPanel, let notch = islandNotch else { return }
+        let width = islandMaxWidth + Self.islandEar * 2
+        let height = notch.height + islandContentHeight + 4
+        islandPanel.setFrame(NSRect(x: notch.midX - width / 2, y: notch.maxY - height, width: width, height: height),
+                             display: true)
+    }
+
+    private func makeIslandPanel() -> NSPanel {
+        let panel = IslandPanel(contentRect: NSRect(x: 0, y: 0, width: 400, height: 80),
+                                styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        // 要盖在菜单栏上面
+        panel.level = .statusBar
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = false
+        panel.hidesOnDeactivate = false
+        panel.becomesKeyOnlyIfNeeded = true
+        panel.isReleasedWhenClosed = false
+        if let player = menuPlayer {
+            let host = IslandHostingView(rootView: NotchIslandView().environment(player).modifier(ThemedAppearance()))
+            host.autoresizingMask = [.width, .height]
+            panel.contentView = host
+        }
+        // 接上 / 拔掉显示器、合上盖子：刘海那块屏幕没了就变回悬浮球，还在就重新对齐
+        screenObserver = NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
+                                                                object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated {
+                let ball = FloatingBall.shared
+                guard ball.inIsland else { return }
+                if let screen = FloatingBall.notchScreen(), let notch = FloatingBall.notchRect(of: screen) {
+                    ball.islandNotch = notch
+                    ball.islandNotchSize = notch.size
+                    ball.positionIsland()
+                } else {
+                    ball.leaveIsland()
+                }
+            }
+        }
+        return panel
+    }
+
     // MARK: 歌词条
 
     var lyricWidth: CGFloat { 320 * lyricScale }
@@ -729,6 +930,7 @@ final class FloatingBall {
     func setTwoLines(_ on: Bool) {
         UserDefaults.standard.set(on, forKey: Self.twoLinesKey)
         if let panel { positionLyricPanel(for: tucked ? (shownFrame ?? panel.frame) : panel.frame) }
+        positionIsland()
     }
     private var lyricGap: CGFloat { 8 * scale }
 
@@ -846,6 +1048,52 @@ private final class FirstClickHostingView<Content: View>: NSHostingView<Content>
     override func mouseExited(with event: NSEvent) {
         super.mouseExited(with: event)
         FloatingBall.shared.pointerExited()
+    }
+}
+
+/// 刘海窗口要放到菜单栏那么高的位置，不让系统把它往下挪
+private final class IslandPanel: NSPanel {
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
+}
+
+/// 刘海上的歌词：拖动变回悬浮球（球出现在鼠标下，接着跟着拖），双击回主窗口，右键是球的菜单
+private final class IslandHostingView<Content: View>: NSHostingView<Content> {
+    private var pressPoint: NSPoint?
+    private var dragging = false
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        FloatingBall.shared.makeMenu()
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        NSMenu.popUpContextMenu(FloatingBall.shared.makeMenu(), with: event, for: self)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        pressPoint = NSEvent.mouseLocation
+        dragging = false
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let press = pressPoint else { return }
+        let mouse = NSEvent.mouseLocation
+        if !dragging {
+            guard hypot(mouse.x - press.x, mouse.y - press.y) >= 4 else { return }
+            dragging = true
+            FloatingBall.shared.leaveIsland(dragFrom: mouse)
+        }
+        FloatingBall.shared.islandDragMoved(to: mouse)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        defer { pressPoint = nil; dragging = false }
+        if dragging {
+            FloatingBall.shared.endDrag()
+        } else if event.clickCount == 2 {
+            FloatingBall.shared.exit()
+        }
     }
 }
 
@@ -1180,12 +1428,7 @@ private struct FloatingLyricView: View {
 
     /// 胶囊当作「当前句」的那一行：一般就是正在唱的这句；
     /// 前奏里（还没到第一句有字的歌词）先把第一句有字的歌词当成当前句显示出来。没有逐句歌词时为 nil
-    private var shownIndex: Int? {
-        guard player.lyricsState == .loaded, player.lyrics.first?.time != nil else { return nil }
-        let rows = textRows
-        if let c = player.currentLyricIndex, rows.contains(where: { $0.index <= c }) { return c }
-        return rows.first?.index
-    }
+    private var shownIndex: Int? { player.floatingLyricIndex }
 
     /// 当前这一句；没有逐句歌词时为空（不显示歌词条）
     private var currentLine: String {
@@ -1311,4 +1554,15 @@ private final class ClosureMenuItem: NSMenuItem {
     required init(coder: NSCoder) { fatalError() }
 
     @objc private func run() { MainActor.assumeIsolated { handler() } }
+}
+
+extension PlayerController {
+    /// 悬浮球歌词胶囊 / 刘海歌词当作「当前句」的那一行：一般就是正在唱的这句；
+    /// 前奏里（还没到第一句有字的歌词）先把第一句有字的歌词当成当前句。没有逐句歌词时为 nil
+    var floatingLyricIndex: Int? {
+        guard lyricsState == .loaded, lyrics.first?.time != nil else { return nil }
+        let textIndices = lyrics.indices.filter { !lyrics[$0].text.isBlank }
+        if let c = currentLyricIndex, textIndices.contains(where: { $0 <= c }) { return c }
+        return textIndices.first
+    }
 }
