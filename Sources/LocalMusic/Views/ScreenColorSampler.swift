@@ -42,6 +42,26 @@ enum ScreenColorSampler {
         }
     }
 
+    /// 屏幕、窗口列表查一次不便宜，记一分钟再查（Groove 自己的悬浮窗不管露没露出来都在里面，排除它们用）；
+    /// 截图出错、找不到屏幕时清掉重查
+    @MainActor private static var cachedContent: (content: SCShareableContent, time: Date)?
+
+    @MainActor
+    private static func shareableContent() async throws -> SCShareableContent {
+        if let cached = cachedContent, Date().timeIntervalSince(cached.time) < 60 { return cached.content }
+        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
+        cachedContent = (content, Date())
+        return content
+    }
+
+    /// 屏幕关着、锁屏时不截（截了也没用）
+    static var screenAvailable: Bool {
+        if CGDisplayIsAsleep(CGMainDisplayID()) != 0 { return false }
+        if let session = CGSessionCopyCurrentDictionary() as? [String: Any],
+           (session["CGSSessionScreenIsLocked"] as? Bool) == true { return false }
+        return true
+    }
+
     /// 屏幕上这块区域（全局坐标）的平均亮度 0...1，不算 excluding 里的窗口（Groove 自己的悬浮窗）
     @MainActor
     static func luminance(of rect: NSRect, excluding windowNumbers: [Int]) async -> Double? {
@@ -57,18 +77,24 @@ enum ScreenColorSampler {
                             width: area.width, height: area.height)
         let excluded = Set(windowNumbers.map { CGWindowID($0) })
         do {
-            let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-            guard let display = content.displays.first(where: { $0.displayID == displayID }) else { return nil }
+            let content = try await shareableContent()
+            guard let display = content.displays.first(where: { $0.displayID == displayID }) else {
+                cachedContent = nil
+                return nil
+            }
             let mine = content.windows.filter { excluded.contains($0.windowID) }
             let filter = SCContentFilter(display: display, excludingWindows: mine)
             let config = SCStreamConfiguration()
             config.sourceRect = source
-            config.width = 16
-            config.height = 8
+            // 输出尺寸要和截的那块一样的长宽比，不然多出来的地方是黑边，算出来会偏暗；最长边缩到 24 像素就够算亮度了
+            let shrink = min(1, 24 / max(source.width, source.height))
+            config.width = max(1, Int((source.width * shrink).rounded()))
+            config.height = max(1, Int((source.height * shrink).rounded()))
             config.showsCursor = false
             let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
             return averageLuminance(image)
         } catch {
+            cachedContent = nil
             return nil
         }
     }

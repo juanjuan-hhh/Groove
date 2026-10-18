@@ -149,6 +149,7 @@ final class FloatingBall {
         lyricScale = scale * Self.lyricSize
         panel.setContentSize(NSSize(width: Self.size, height: Self.size))
         installMouseMonitor()
+        watchBackdropEvents()
         // 上次是吸附在刘海上收起来的：直接回到刘海上
         if UserDefaults.standard.bool(forKey: Self.islandKey), let screen = Self.notchScreen() {
             enterIsland(on: screen, animated: false)
@@ -380,17 +381,20 @@ final class FloatingBall {
     private func slide(to frame: NSRect?, tucked: Bool) {
         guard let panel, let frame else { return }
         self.tucked = tucked
-        // 藏着的时候每 2 秒看一眼球后面（主窗口挪过来、换了桌面之类），露出来就不用看了
+        // 藏起来时马上看一眼球后面；之后切换 App、换桌面等时候再看（见 watchBackdropEvents），
+        // 另外每 3 秒补看一次（别的窗口挪过来盖住之类没有通知的情况）。露出来就不用看了
         backdropTimer?.invalidate()
         backdropTimer = nil
         if tucked {
             updateBackdrop(for: frame)
-            backdropTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { _ in
+            backdropTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { _ in
                 MainActor.assumeIsolated {
+                    guard ScreenColorSampler.screenAvailable else { return }
                     let ball = FloatingBall.shared
                     if let frame = ball.panel?.frame { ball.updateBackdrop(for: frame) }
                 }
             }
+            backdropTimer?.tolerance = 1
         }
         // 藏起一半时底是半透明的，窗口阴影会从底下透出来变成一块灰，所以先关掉阴影
         panel.hasShadow = !tucked
@@ -403,8 +407,12 @@ final class FloatingBall {
             context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             panel.animator().setFrame(frame, display: true)
         } completionHandler: {
-            // 歌词条跟着球一起挪过了，滑完以后再按球现在的位置对齐一次（贴边时也可能显示歌词条）
-            MainActor.assumeIsolated { FloatingBall.shared.positionLyricPanel(for: frame) }
+            // 歌词条跟着球一起挪过了，滑完以后再按球现在的位置对齐一次（贴边时也可能显示歌词条）；
+            // 藏好以后再看一眼球后面（滑动前看的那一眼可能被别的东西挡着）
+            MainActor.assumeIsolated {
+                FloatingBall.shared.positionLyricPanel(for: frame)
+                if tucked { FloatingBall.shared.scheduleBackdropCheck() }
+            }
         }
     }
 
@@ -634,6 +642,43 @@ final class FloatingBall {
 
     @ObservationIgnored private var ballSampling = false
     @ObservationIgnored private var islandSampling = false
+
+    // MARK: 什么时候看后面的颜色：位置变了、切换 App、换桌面、屏幕变化、睡醒时马上看（合并成一次），平时 3 秒补看一次
+
+    @ObservationIgnored private var backdropCheck: DispatchWorkItem?
+    @ObservationIgnored private var backdropObservers: [Any] = []
+
+    /// 过一小会儿看一次后面的颜色；这段时间里又有变化就只看最后那一次，不重复截
+    func scheduleBackdropCheck(after delay: Double = 0.18) {
+        backdropCheck?.cancel()
+        let work = DispatchWorkItem {
+            MainActor.assumeIsolated {
+                let ball = FloatingBall.shared
+                guard ScreenColorSampler.screenAvailable else { return }
+                if ball.inIsland {
+                    ball.updateIslandBackdrop()
+                } else if ball.tucked, let frame = ball.panel?.frame {
+                    ball.updateBackdrop(for: frame)
+                }
+            }
+        }
+        backdropCheck = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
+    private func watchBackdropEvents() {
+        guard backdropObservers.isEmpty else { return }
+        let workspace = NSWorkspace.shared.notificationCenter
+        let handler: (Notification) -> Void = { _ in
+            MainActor.assumeIsolated { FloatingBall.shared.scheduleBackdropCheck(after: 0.3) }
+        }
+        for name in [NSWorkspace.didActivateApplicationNotification, NSWorkspace.activeSpaceDidChangeNotification,
+                     NSWorkspace.screensDidWakeNotification] {
+            backdropObservers.append(workspace.addObserver(forName: name, object: nil, queue: .main, using: handler))
+        }
+        backdropObservers.append(NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
+                                                                        object: nil, queue: .main, using: handler))
+    }
 
     /// Groove 自己的悬浮窗（截屏幕颜色时不算它们）
     private var ownWindowNumbers: [Int] {
@@ -939,13 +984,17 @@ final class FloatingBall {
         }
     }
 
-    /// 每秒看一眼胶囊后面是深色还是浅色（切换窗口、换壁纸、改外观时跟着变）
+    /// 吸上去时马上看一眼胶囊后面是深色还是浅色，切换 App、换桌面时再看，另外每 3 秒补看一次
     private func startIslandBackdropWatch() {
         islandTimer?.invalidate()
         updateIslandBackdrop()
-        islandTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
-            MainActor.assumeIsolated { FloatingBall.shared.updateIslandBackdrop() }
+        islandTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { _ in
+            MainActor.assumeIsolated {
+                guard ScreenColorSampler.screenAvailable else { return }
+                FloatingBall.shared.updateIslandBackdrop()
+            }
         }
+        islandTimer?.tolerance = 1
     }
 
     /// 胶囊后面是什么：最前面盖住这块的是 Groove 自己的窗口就按它的外观；是别的 App 的窗口就按系统的深色 / 浅色外观
