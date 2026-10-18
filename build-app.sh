@@ -30,14 +30,7 @@ cp "$BIN_DIR/LocalMusic" "$APP/Contents/MacOS/LocalMusic"
 cp Support/Info.plist "$APP/Contents/Info.plist"
 cp Support/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 xattr -cr "$APP"   # 先清掉 Finder 等加的扩展属性，不然签名校验不过
-# 有「Apple Development」证书就用它签：签名身份每次都一样，系统给的「屏幕录制」等权限重新编译后还在；
-# 没有就临时签名（每次编译都算新 App，权限会失效）。发给别人的 dmg 由 make-dmg.sh 另外签
-SIGN_ID="$(security find-identity -v -p codesigning 2>/dev/null | awk -F'"' '/Apple Development/ {print $2; exit}')"
-if [[ -n "$SIGN_ID" ]] && codesign --force --sign "$SIGN_ID" "$APP" >/dev/null 2>&1; then
-  echo "签名：$SIGN_ID"
-else
-  codesign --force --sign - "$APP" >/dev/null 2>&1 || true
-fi
+codesign --force --sign - "$APP" >/dev/null 2>&1 || true
 
 # 安装到「应用程序」：先退出正在运行的旧版本，再替换。音乐库、歌单、设置都在
 # ~/Library/Application Support/LocalMusic，不在 App 里，替换不会丢。
@@ -61,6 +54,19 @@ if [[ -d "$OLD_INSTALLED" ]] && [[ "$(plutil -extract CFBundleIdentifier raw "$O
   echo "已删除改名前的旧版本：$OLD_INSTALLED"
 fi
 ditto "$APP" "$INSTALLED"
+# 装好的这份有「Apple Development」证书就重新用它签：签名身份每次都一样，系统给的「屏幕录制」等权限重新编译后还在；
+# 没有证书就保持临时签名（每次编译都算新 App，权限会失效）。build 文件夹在「文稿」里，会被系统加上去不掉的扩展属性，
+# 用证书签会失败，所以只签「应用程序」里这份。发给别人的 dmg 由 make-dmg.sh 另外签
+SIGN_ID="$(security find-identity -v -p codesigning 2>/dev/null | awk -F'"' '/Apple Development/ {print $2; exit}')"
+if [[ -n "$SIGN_ID" ]]; then
+  xattr -cr "$INSTALLED"
+  if codesign --force --sign "$SIGN_ID" "$INSTALLED" >/dev/null 2>&1; then
+    echo "签名：$SIGN_ID"
+  else
+    codesign --force --sign - "$INSTALLED" >/dev/null 2>&1 || true
+    echo "用证书签名失败，还是临时签名（重新编译后屏幕录制权限可能要重新打开）"
+  fi
+fi
 touch "$INSTALLED"   # 让 Finder / Dock 刷新图标
 # 先登记新版本，否则刚复制完马上打开可能报 -600
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$INSTALLED" >/dev/null 2>&1 || true
