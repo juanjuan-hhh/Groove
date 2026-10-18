@@ -87,7 +87,7 @@ final class FloatingBall {
     @ObservationIgnored private var lyricPanel: NSPanel?
     /// 歌词条往左伸（球在屏幕右半边时）还是往右伸
     private(set) var lyricOnLeft = true
-    /// 贴上 / 下边藏起来时歌词条放在球的下面 / 上面，文字居中
+    /// 贴在上 / 下边时歌词条放在球的下面 / 上面，文字居中
     private(set) var lyricCentered = false
     @ObservationIgnored private weak var mainWindow: NSWindow?
 
@@ -161,8 +161,8 @@ final class FloatingBall {
         panel.alphaValue = 1
         panel.orderFrontRegardless()
         panel.invalidateShadow()
-        attachLyricPanel(player: player)
         updateDock(for: panel.frame)
+        attachLyricPanel(player: player)
         scheduleTuck(after: 1.5)
     }
 
@@ -294,6 +294,8 @@ final class FloatingBall {
             return
         }
         let target = snapped(panel.frame, on: panel.screen ?? NSScreen.main)
+        // 先定下贴在哪条边，歌词条才知道放在旁边还是上下
+        updateDock(for: target)
         if target != panel.frame {
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.2
@@ -307,7 +309,6 @@ final class FloatingBall {
             positionLyricPanel(for: target)
         }
         UserDefaults.standard.set(NSStringFromPoint(target.origin), forKey: Self.originKey)
-        updateDock(for: target)
         if !hovering { scheduleTuck(after: 0.8) }
     }
 
@@ -997,11 +998,11 @@ final class FloatingBall {
         panel.hasShadow = true
         panel.orderFrontRegardless()
         panel.invalidateShadow()
+        if mouse == nil { updateDock(for: panel.frame) }
         attachLyricPanel(player: player)
         if let mouse {
             dragStart = (mouse, panel.frame.origin)
         } else {
-            updateDock(for: panel.frame)
             scheduleTuck(after: 1.5)
         }
     }
@@ -1133,8 +1134,8 @@ final class FloatingBall {
 
     private func positionLyricPanel(for ball: NSRect) {
         guard let lyricPanel else { return }
-        // 藏在上边：歌词条放在露出来的半个球下面；藏在下边：放在上面。左右以球为中心，不出屏幕
-        if tucked, dock == .top || dock == .bottom, let screen = panel?.screen ?? NSScreen.main {
+        // 贴在上边：歌词条放在球（藏起来时是露出来的那半个）下面；贴在下边：放在上面。左右以球为中心，不出屏幕
+        if dock == .top || dock == .bottom, dragStart == nil, let screen = panel?.screen ?? NSScreen.main {
             if !lyricCentered { lyricCentered = true }
             let visible = ball.intersection(screen.frame)
             let part = visible.isNull ? ball : visible
