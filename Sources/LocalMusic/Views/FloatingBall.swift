@@ -87,6 +87,8 @@ final class FloatingBall {
     @ObservationIgnored private var lyricPanel: NSPanel?
     /// 歌词条往左伸（球在屏幕右半边时）还是往右伸
     private(set) var lyricOnLeft = true
+    /// 贴上 / 下边藏起来时歌词条放在球的下面 / 上面，文字居中
+    private(set) var lyricCentered = false
     @ObservationIgnored private weak var mainWindow: NSWindow?
 
     /// 球露着，或者吸附在刘海上（这时球藏起来，只显示刘海下面的歌词）
@@ -311,7 +313,7 @@ final class FloatingBall {
 
     // MARK: 贴边藏一半（像 QQ 音乐）：贴在左右边时，鼠标离开一会儿就滑出去一半，移上去再滑回来
 
-    enum DockEdge { case left, right }
+    enum DockEdge { case left, right, top, bottom }
 
     @ObservationIgnored private var dock: DockEdge?
     /// 贴边时完整露出来的位置
@@ -335,7 +337,8 @@ final class FloatingBall {
         if dragStart == nil { scheduleTuck(after: 0.8) }
     }
 
-    /// 贴在左 / 右边、而且那一侧没有别的显示器时，才算「贴边」
+    /// 贴在左 / 右 / 上 / 下边、而且那一侧没有别的显示器时，才算「贴边」（贴在角上时算左右边）。
+    /// 有刘海的屏幕上，正对着刘海的那段上边不算（那里是吸到刘海上）
     private func updateDock(for frame: NSRect) {
         dock = nil
         shownFrame = frame
@@ -346,10 +349,18 @@ final class FloatingBall {
         func neighbor(atX x: CGFloat) -> Bool {
             NSScreen.screens.contains { $0 != screen && $0.frame.contains(NSPoint(x: x, y: mid)) }
         }
+        func neighbor(atY y: CGFloat) -> Bool {
+            NSScreen.screens.contains { $0 != screen && $0.frame.contains(NSPoint(x: frame.midX, y: y)) }
+        }
+        let underNotch = Self.notchRect(of: screen).map { frame.maxX > $0.minX && frame.minX < $0.maxX } ?? false
         if abs(frame.minX - lo.minX) < 1, !neighbor(atX: screen.frame.minX - 2) {
             dock = .left
         } else if abs(frame.maxX - lo.maxX) < 1, !neighbor(atX: screen.frame.maxX + 2) {
             dock = .right
+        } else if abs(frame.maxY - lo.maxY) < 1, !underNotch, !neighbor(atY: screen.frame.maxY + 2) {
+            dock = .top
+        } else if abs(frame.minY - lo.minY) < 1, !neighbor(atY: screen.frame.minY - 2) {
+            dock = .bottom
         }
     }
 
@@ -368,13 +379,24 @@ final class FloatingBall {
         tuckTask = nil
     }
 
-    /// 缩小一点、滑出去一半，只露半个球（上下中心不变）
+    /// 滑出去一半，只露半个球（贴左右边时上下位置不变，贴上下边时左右位置不变）。
+    /// 上边藏进屏幕最上沿（露出来的半个球压在菜单栏上）；下边程序坞常驻在下面时停在程序坞上沿，不然藏进屏幕最下沿
     private func tuck() {
         guard let dock, let shown = shownFrame, let screen = panel?.screen ?? NSScreen.main else { return }
         let edge = screen.visibleFrame
         let side = Self.tuckedSize
-        let frame = NSRect(x: dock == .left ? edge.minX - side / 2 : edge.maxX - side / 2,
+        let frame: NSRect
+        switch dock {
+        case .left, .right:
+            frame = NSRect(x: dock == .left ? edge.minX - side / 2 : edge.maxX - side / 2,
                            y: shown.midY - side / 2, width: side, height: side)
+        case .top:
+            frame = NSRect(x: shown.midX - side / 2, y: screen.frame.maxY - side / 2, width: side, height: side)
+        case .bottom:
+            let dockShown = edge.minY - screen.frame.minY > 10
+            let bottom = dockShown ? edge.minY : screen.frame.minY
+            frame = NSRect(x: shown.midX - side / 2, y: bottom - side / 2, width: side, height: side)
+        }
         slide(to: frame, tucked: true)
     }
 
@@ -1111,10 +1133,22 @@ final class FloatingBall {
 
     private func positionLyricPanel(for ball: NSRect) {
         guard let lyricPanel else { return }
+        // 藏在上边：歌词条放在露出来的半个球下面；藏在下边：放在上面。左右以球为中心，不出屏幕
+        if tucked, dock == .top || dock == .bottom, let screen = panel?.screen ?? NSScreen.main {
+            if !lyricCentered { lyricCentered = true }
+            let visible = ball.intersection(screen.frame)
+            let part = visible.isNull ? ball : visible
+            let area = screen.visibleFrame
+            let x = min(max(ball.midX - lyricWidth / 2, area.minX + 4), area.maxX - lyricWidth - 4)
+            let y = dock == .top ? part.minY - lyricGap - lyricHeight : part.maxY + lyricGap
+            lyricPanel.setFrame(NSRect(x: x, y: y, width: lyricWidth, height: lyricHeight), display: false)
+            return
+        }
+        if lyricCentered { lyricCentered = false }
         let onLeft = lyricSide(for: ball)
         if onLeft != lyricOnLeft { lyricOnLeft = onLeft }
         let x = onLeft ? ball.minX - lyricGap - lyricWidth : ball.maxX + lyricGap
-        // 上下和完整的球对齐（藏起一半时歌词条本来就不显示）
+        // 上下和完整的球对齐
         let midY = tucked ? (shownFrame?.midY ?? ball.midY) : ball.midY
         lyricPanel.setFrame(NSRect(x: x, y: midY - lyricHeight / 2, width: lyricWidth, height: lyricHeight),
                             display: false)
@@ -1344,6 +1378,16 @@ struct FloatingBallView: View {
         }
         .frame(width: size, height: size)
         .clipShape(Circle())
+        // 藏起一半时只画露出来的那半个（贴下边停在程序坞上沿时，另一半会压在程序坞上）；多留一点，进度起点的圆头不被切掉
+        .mask(alignment: tuckedMaskAlignment) {
+            if let edge = FloatingBall.shared.tuckedEdge {
+                let keep = size / 2 + ring * 1.5
+                Rectangle().frame(width: edge == .left || edge == .right ? keep : size,
+                                  height: edge == .top || edge == .bottom ? keep : size)
+            } else {
+                Rectangle()
+            }
+        }
         .contentShape(Circle())
         // 拖动在 FloatingBall 里按鼠标事件处理；单击空白处显示播放队列（等双击时间过了才算单击），双击回主窗口
         .gesture(TapGesture(count: 2).onEnded { FloatingBall.shared.exit() }
@@ -1351,17 +1395,42 @@ struct FloatingBallView: View {
         .help(player.current.map { "\($0.title) — \($0.artist)\n单击显示播放队列，双击回到主窗口" } ?? "双击回到主窗口")
     }
 
+    /// 藏起一半时露出来的是哪一边（贴左边露右半边，贴上边露下半边……）
+    private var tuckedMaskAlignment: Alignment {
+        switch FloatingBall.shared.tuckedEdge {
+        case .left: .trailing
+        case .right: .leading
+        case .top: .bottom
+        case .bottom: .top
+        case nil: .center
+        }
+    }
+
     /// 藏起一半时的样子（和 App 图标一样的配色）：不显示封面；
-    /// 露出来的半圆边是整条进度（从上到下），进度头上有个圆点；
+    /// 露出来的半圆边是整条进度（贴左右边时从上到下，贴上下边时从左到右），进度头上有个圆点；
     /// 中间播放时是三根跳动的音柱，暂停时是播放三角
     private func tuckedFace(edge: FloatingBall.DockEdge, fraction: Double) -> some View {
-        // 贴右边时露出左半边，进度从顶部沿左边走到底部；贴左边时反过来
-        let mirror: CGFloat = edge == .right ? -1 : 1
+        // 贴右边时露出左半边，进度从顶部沿左边走到底部；贴左边时反过来。
+        // 贴上边：把「贴右边」的样子逆时针转 90°，露出下半边，进度从左沿下边走到右；
+        // 贴下边：把「贴左边」的样子逆时针转 90°，露出上半边，进度从左沿上边走到右
+        let mirror: CGFloat = edge == .right || edge == .top ? -1 : 1
+        let turn: Angle = edge == .top || edge == .bottom ? .degrees(-90) : .zero
+        // 音柱、三角不转，往露出来的那一边挪
+        let shift = size * 0.15
+        let iconOffset: CGSize = switch edge {
+        case .left: CGSize(width: shift, height: 0)
+        case .right: CGSize(width: -shift, height: 0)
+        case .top: CGSize(width: 0, height: shift)
+        case .bottom: CGSize(width: 0, height: -shift)
+        }
         return ZStack {
-            halfArc(to: 1, color: tuckColor.opacity(0.25), width: ring, inset: ringInset, mirror: mirror)
-            halfArc(to: fraction, color: tuckColor, width: ring, inset: ringInset, mirror: mirror)
-            progressKnob(angle: .pi * max(0, min(1, fraction)), mirror: mirror, color: tuckColor)
-                .opacity(fraction > 0.01 ? 1 : 0)
+            ZStack {
+                halfArc(to: 1, color: tuckColor.opacity(0.25), width: ring, inset: ringInset, mirror: mirror)
+                halfArc(to: fraction, color: tuckColor, width: ring, inset: ringInset, mirror: mirror)
+                progressKnob(angle: .pi * max(0, min(1, fraction)), mirror: mirror, color: tuckColor)
+                    .opacity(fraction > 0.01 ? 1 : 0)
+            }
+            .rotationEffect(turn)
 
             Group {
                 if player.isPlaying {
@@ -1373,7 +1442,7 @@ struct FloatingBallView: View {
                 }
             }
             .scaleEffect(size / 80)   // 球缩小了，音柱和三角也跟着小一点
-            .offset(x: mirror * size / 4 + (edge == .right ? 1 : -1) * size * 0.1)   // 往球心挪一点
+            .offset(iconOffset)
             .transition(.opacity)
         }
         // 进度环、音柱、三角都衬一圈反色的淡光：后面深浅判断错了（比如没有屏幕录制权限时）也看得出来
@@ -1492,8 +1561,8 @@ private struct FloatingLyricView: View {
         let visible = ball.adjustingLyric || (!line.isEmpty && player.playedThisLaunch && (ball.tuckedEdge == nil || showWhenTucked)
             && mode != .off && (mode == .always || ball.hovering))
         // 文字靠球那一边对齐
-        let align: HorizontalAlignment = ball.lyricOnLeft ? .trailing : .leading
-        let rowAlign: Alignment = ball.lyricOnLeft ? .trailing : .leading
+        let align: HorizontalAlignment = ball.lyricCentered ? .center : ball.lyricOnLeft ? .trailing : .leading
+        let rowAlign: Alignment = ball.lyricCentered ? .center : ball.lyricOnLeft ? .trailing : .leading
         // 量大小用：现在这句（+ 下一句），不显示，只撑开胶囊。宽度跟着这几句变，带动画。
         // 下一句按放大后的字号量：它马上要变成当前句，到时候胶囊不用再突然变宽
         ZStack(alignment: rowAlign) {
@@ -1533,7 +1602,7 @@ private struct FloatingLyricView: View {
         .allowsHitTesting(visible)
         .animation(.easeInOut(duration: 0.35), value: player.currentLyricIndex)
         // 贴着球那一边对齐，长度跟着歌词变，最长到整个歌词条；上下居中对齐球
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: ball.lyricOnLeft ? .trailing : .leading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: rowAlign)
         .opacity(visible ? 1 : 0)
         .animation(.easeInOut(duration: 0.2), value: visible)
         // 胶囊不显示时整条歌词窗口都不接鼠标，不挡后面的东西
@@ -1575,7 +1644,7 @@ private struct FloatingLyricView: View {
                         // 字号换不出平滑动画，用缩放：不是当前句时缩到 11/14，靠球那一边对齐；
                         // 排版时按缩放前的宽度给，缩完正好是胶囊的宽度，不会提前出省略号
                         .frame(width: full / (isCurrent ? 1 : small), alignment: align)
-                        .scaleEffect(isCurrent ? 1 : small, anchor: align == .trailing ? .trailing : .leading)
+                        .scaleEffect(isCurrent ? 1 : small, anchor: align == .trailing ? .trailing : align == .center ? .center : .leading)
                         .frame(width: full, alignment: align)
                         .opacity(shown ? 1 : 0)
                         .offset(y: base + CGFloat(k - pos) * pitch)
