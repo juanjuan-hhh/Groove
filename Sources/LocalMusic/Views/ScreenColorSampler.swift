@@ -46,7 +46,9 @@ enum ScreenColorSampler {
     @MainActor
     static func luminance(of rect: NSRect, excluding windowNumbers: [Int]) async -> Double? {
         guard enabled, granted,
-              let screen = NSScreen.screens.first(where: { $0.frame.contains(NSPoint(x: rect.midX, y: rect.midY)) }),
+              // 贴右边藏一半时球的中心正好压在屏幕右边线上，按中心点找屏幕会找不到，所以按重叠面积最大的那块屏幕算
+              let screen = NSScreen.screens.max(by: { area(rect.intersection($0.frame)) < area(rect.intersection($1.frame)) }),
+              area(rect.intersection(screen.frame)) > 0,
               let displayID = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID else { return nil }
         let area = rect.intersection(screen.frame)
         guard area.width >= 1, area.height >= 1 else { return nil }
@@ -70,6 +72,8 @@ enum ScreenColorSampler {
             return nil
         }
     }
+
+    private static func area(_ r: NSRect) -> CGFloat { r.isNull ? 0 : r.width * r.height }
 
     /// 缩成 1 个像素取颜色，按人眼对红绿蓝的敏感程度算亮度
     private static func averageLuminance(_ image: CGImage) -> Double? {
