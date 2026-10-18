@@ -30,7 +30,14 @@ cp "$BIN_DIR/LocalMusic" "$APP/Contents/MacOS/LocalMusic"
 cp Support/Info.plist "$APP/Contents/Info.plist"
 cp Support/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 xattr -cr "$APP"   # 先清掉 Finder 等加的扩展属性，不然签名校验不过
-codesign --force --sign - "$APP" >/dev/null 2>&1 || true
+# 有「Apple Development」证书就用它签：签名身份每次都一样，系统给的「屏幕录制」等权限重新编译后还在；
+# 没有就临时签名（每次编译都算新 App，权限会失效）。发给别人的 dmg 由 make-dmg.sh 另外签
+SIGN_ID="$(security find-identity -v -p codesigning 2>/dev/null | awk -F'"' '/Apple Development/ {print $2; exit}')"
+if [[ -n "$SIGN_ID" ]] && codesign --force --sign "$SIGN_ID" "$APP" >/dev/null 2>&1; then
+  echo "签名：$SIGN_ID"
+else
+  codesign --force --sign - "$APP" >/dev/null 2>&1 || true
+fi
 
 # 安装到「应用程序」：先退出正在运行的旧版本，再替换。音乐库、歌单、设置都在
 # ~/Library/Application Support/LocalMusic，不在 App 里，替换不会丢。
