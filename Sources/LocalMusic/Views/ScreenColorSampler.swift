@@ -5,17 +5,25 @@ import ScreenCaptureKit
 /// 刘海歌词胶囊、贴边藏一半的球都用它决定配深色还是浅色；没开、没权限、截不到时返回 nil，调用方按原来的办法猜
 enum ScreenColorSampler {
     static let enabledKey = "floatingBallScreenColor"
-    static var enabled: Bool { UserDefaults.standard.bool(forKey: enabledKey) }
+    /// 默认开着：有权限就直接用，没权限也不会弹任何东西（只有在菜单里点它时才向系统要权限）
+    static var enabled: Bool { UserDefaults.standard.object(forKey: enabledKey) as? Bool ?? true }
     static var granted: Bool { CGPreflightScreenCaptureAccess() }
 
     /// 菜单里的开关。打开时没有权限就向系统要，要不到就弹一张卡片说去哪里打开
     @MainActor
     static func toggle() {
-        if enabled {
+        // 菜单里打勾 = 开着并且有权限；开着但没权限时点它是去要权限，不是关掉
+        if enabled && granted {
             UserDefaults.standard.set(false, forKey: enabledKey)
             return
         }
         UserDefaults.standard.set(true, forKey: enabledKey)
+        requestIfNeeded()
+    }
+
+    /// 没有权限就向系统要，要不到就弹卡片说去哪里打开
+    @MainActor
+    static func requestIfNeeded() {
         guard !granted else { return }
         // 第一次会弹系统的授权框；已经拒绝过就什么也不弹，直接返回 false
         if !CGRequestScreenCaptureAccess() {

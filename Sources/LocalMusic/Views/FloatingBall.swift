@@ -645,17 +645,41 @@ final class FloatingBall {
         if Self.tuckColor != "auto" {
             // 手动定了颜色：白色是给深色背景用的
             light = Self.tuckColor == "black"
-        } else if let main = NSApp.windows.first(where: { !($0 is NSPanel) && $0.isVisible && $0.canBecomeMain && !$0.isMiniaturized }),
-           main.frame.intersects(frame) {
-            light = !(main.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua)
-        } else if let screen = panel?.screen ?? NSScreen.main, let lum = Self.wallpaperBrightness(behind: frame, on: screen) {
-            light = lum > 0.55
         } else {
-            light = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) != .darkAqua
+            light = guessLight(behind: frame)
         }
-        if light != backdropIsLight {
-            withAnimation(.easeInOut(duration: 0.3)) { backdropIsLight = light }
+        setBackdropLight(light)
+    }
+
+    /// 不截屏时猜某块屏幕后面是深是浅：最前面盖住这块的是 Groove 自己的窗口就按它的外观；
+    /// 是别的 App 的窗口就按系统的深色 / 浅色外观（窗口里具体画了什么要「屏幕录制」权限才看得到，这里只用窗口的位置）；
+    /// 没有窗口就看桌面壁纸那一块的亮度；壁纸也读不到（比如「照片」App 设的壁纸）就按系统外观
+    private func guessLight(behind area: NSRect) -> Bool {
+        let systemLight = UserDefaults.standard.string(forKey: "AppleInterfaceStyle") != "Dark"
+        // 窗口列表用的坐标原点在主屏幕左上角，往下是正
+        let primaryHeight = NSScreen.screens.first?.frame.maxY ?? 0
+        let cgArea = CGRect(x: area.minX, y: primaryHeight - area.maxY, width: area.width, height: area.height)
+        let infos = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+        let me = ProcessInfo.processInfo.processIdentifier
+        let own = Set(ownWindowNumbers)
+        for info in infos {
+            guard (info[kCGWindowLayer as String] as? Int) == 0,
+                  (info[kCGWindowAlpha as String] as? Double ?? 1) > 0.1,
+                  let number = info[kCGWindowNumber as String] as? Int, !own.contains(number),
+                  let dict = info[kCGWindowBounds as String] as? NSDictionary,
+                  let bounds = CGRect(dictionaryRepresentation: dict),
+                  bounds.intersects(cgArea) else { continue }
+            if (info[kCGWindowOwnerPID as String] as? Int32) == me,
+               let main = NSApp.windows.first(where: { !($0 is NSPanel) && $0.isVisible && $0.canBecomeMain && !$0.isMiniaturized }) {
+                return main.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) != .darkAqua
+            }
+            return systemLight
         }
+        if let screen = NSScreen.screens.first(where: { $0.frame.contains(NSPoint(x: area.midX, y: area.midY)) }) ?? panel?.screen,
+           let lum = Self.wallpaperBrightness(behind: area, on: screen) {
+            return lum > 0.55
+        }
+        return systemLight
     }
 
     /// 缩小的壁纸（按文件缓存），算亮度用；image 为 nil 表示这张读不了或不该读，换壁纸 / 改开关前不再试
@@ -946,32 +970,7 @@ final class FloatingBall {
     }
 
     private func guessIslandBackdrop(area: NSRect, notch: NSRect) {
-        let systemLight = UserDefaults.standard.string(forKey: "AppleInterfaceStyle") != "Dark"
-        var light: Bool?
-        // 窗口列表用的坐标原点在主屏幕左上角，往下是正
-        let primaryHeight = NSScreen.screens.first?.frame.maxY ?? 0
-        let cgArea = CGRect(x: area.minX, y: primaryHeight - area.maxY, width: area.width, height: area.height)
-        let infos = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
-        let me = ProcessInfo.processInfo.processIdentifier
-        for info in infos {
-            guard (info[kCGWindowLayer as String] as? Int) == 0,
-                  (info[kCGWindowAlpha as String] as? Double ?? 1) > 0.1,
-                  let dict = info[kCGWindowBounds as String] as? NSDictionary,
-                  let bounds = CGRect(dictionaryRepresentation: dict),
-                  bounds.intersects(cgArea) else { continue }
-            if (info[kCGWindowOwnerPID as String] as? Int32) == me,
-               let main = NSApp.windows.first(where: { !($0 is NSPanel) && $0.isVisible && $0.canBecomeMain && !$0.isMiniaturized }) {
-                light = main.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) != .darkAqua
-            } else {
-                light = systemLight
-            }
-            break
-        }
-        if light == nil, let screen = NSScreen.screens.first(where: { $0.frame.contains(NSPoint(x: notch.midX, y: notch.midY)) }),
-           let lum = Self.wallpaperBrightness(behind: area, on: screen) {
-            light = lum > 0.55
-        }
-        setIslandBackdropLight(light ?? systemLight)
+        setIslandBackdropLight(guessLight(behind: area))
     }
 
     /// 从刘海上拖下来以后，鼠标还按在刘海的窗口上，移动交给这里让球跟着走
