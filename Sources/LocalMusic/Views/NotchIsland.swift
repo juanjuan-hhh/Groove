@@ -24,46 +24,53 @@ struct NotchIslandView: View {
         let height = ball.islandContentHeight
         let radius = 18 * s
 
-        VStack(spacing: 2 * s) {
-            // 换句时新的一句从下面滑上来、旧的往上滑走
-            ZStack {
-                Text(line)
-                    .font(.ui(14 * s, .semibold))
-                    .foregroundStyle(dark ? Color.white : Color.black.opacity(0.85))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .id(line)
-                    .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity),
-                                            removal: .move(edge: .top).combined(with: .opacity)))
-            }
-            if twoLines {
-                Text(next)
-                    .font(.ui(11 * s, .medium))
-                    .foregroundStyle(dark ? Color.white.opacity(0.55) : Color.black.opacity(0.5))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .id(next)
-                    .transition(.opacity)
-            }
-        }
-        .padding(.horizontal, pad)
-        .frame(width: capsuleWidth, height: height)
-        .clipped()
-        .background {
+        // 歌词、毛玻璃都按最宽的胶囊排版、放在正中间，宽度一直不变；
+        // 只有外面那层圆角遮罩跟着歌词变宽变窄。这样换句时字和底都不会先靠左再跳回中间
+        let full = ball.islandMaxWidth
+        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        ZStack {
             ZStack {
                 FrostBackground(dark: dark)
-                RoundedRectangle(cornerRadius: radius, style: .continuous)
-                    .fill(dark ? Color.black.opacity(0.28) : Color.white.opacity(0.35))
+                Rectangle().fill(dark ? Color.black.opacity(0.28) : Color.white.opacity(0.35))
             }
+            .frame(width: full, height: height)
+            VStack(spacing: 2 * s) {
+                // 换句时新的一句从下面滑上来、旧的往上滑走
+                ZStack {
+                    Text(line)
+                        .font(.ui(14 * s, .semibold))
+                        .foregroundStyle(dark ? Color.white : Color.black.opacity(0.85))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(width: full - pad * 2)
+                        .id(line)
+                        .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity),
+                                                removal: .move(edge: .top).combined(with: .opacity)))
+                }
+                if twoLines {
+                    Text(next)
+                        .font(.ui(11 * s, .medium))
+                        .foregroundStyle(dark ? Color.white.opacity(0.55) : Color.black.opacity(0.5))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(width: full - pad * 2)
+                        .id(next)
+                        .transition(.opacity)
+                }
+            }
+            .frame(width: full, height: height)
+            .clipped()
         }
-        .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+        .frame(width: full, height: height)
+        .mask { shape.frame(width: capsuleWidth, height: height) }
         // 细边 + 淡阴影，背后和胶囊颜色接近时也分得出边
         .overlay {
-            RoundedRectangle(cornerRadius: radius, style: .continuous)
+            shape
                 .strokeBorder(dark ? Color.white.opacity(0.14) : Color.black.opacity(0.08), lineWidth: 0.5)
+                .frame(width: capsuleWidth, height: height)
         }
+        .compositingGroup()
         .shadow(color: .black.opacity(dark ? 0.25 : 0.18), radius: 5, y: 2)
-        .contentShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
         .animation(.easeInOut(duration: 0.35), value: line)
         .animation(.spring(response: 0.42, dampingFraction: 0.82), value: capsuleWidth)
         // 从刘海里弹出来：收着的时候缩小、往上躲进刘海、透明

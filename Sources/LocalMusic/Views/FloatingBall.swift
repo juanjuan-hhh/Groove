@@ -595,6 +595,10 @@ final class FloatingBall {
         menu.addItem(item("系统壁纸取色", checked: Self.wallpaperColor, enabled: Self.tuckColor == "auto") {
             FloatingBall.shared.setWallpaperColor(!FloatingBall.wallpaperColor)
         })
+        menu.addItem(item("读取屏幕颜色（需要屏幕录制权限）",
+                          checked: ScreenColorSampler.enabled && ScreenColorSampler.granted) {
+            ScreenColorSampler.toggle()
+        })
         menu.addItem(item("一直显示悬浮球", checked: Self.alwaysOn) {
             FloatingBall.shared.setAlwaysOn(!FloatingBall.alwaysOn, player: player)
         })
@@ -606,8 +610,37 @@ final class FloatingBall {
     // MARK: 球后面是深色还是浅色
 
     /// 看球后面是什么：Groove 自己的主窗口在后面就按它的底色（深色 / 浅色外观）；
-    /// 不然看桌面壁纸上球所在那一小块的亮度。别的 App 的窗口看不到（那要「屏幕录制」权限），只能按壁纸算
+    /// 不然看桌面壁纸上球所在那一小块的亮度。别的 App 的窗口看不到（那要「屏幕录制」权限），只能按壁纸算。
+    /// 开了「读取屏幕颜色」并且有权限时，直接截球后面那一小块看亮度，截不到再按上面的办法猜
     func updateBackdrop(for frame: NSRect) {
+        if Self.tuckColor == "auto", ScreenColorSampler.enabled, ScreenColorSampler.granted {
+            guard !ballSampling else { return }
+            ballSampling = true
+            Task {
+                let lum = await ScreenColorSampler.luminance(of: frame, excluding: self.ownWindowNumbers)
+                self.ballSampling = false
+                if let lum { self.setBackdropLight(lum > 0.55) } else { self.guessBackdrop(for: frame) }
+            }
+            return
+        }
+        guessBackdrop(for: frame)
+    }
+
+    @ObservationIgnored private var ballSampling = false
+    @ObservationIgnored private var islandSampling = false
+
+    /// Groove 自己的悬浮窗（截屏幕颜色时不算它们）
+    private var ownWindowNumbers: [Int] {
+        [panel, lyricPanel, islandPanel, queuePanel, sizePanel].compactMap { $0?.windowNumber }
+    }
+
+    private func setBackdropLight(_ light: Bool) {
+        if light != backdropIsLight {
+            withAnimation(.easeInOut(duration: 0.3)) { backdropIsLight = light }
+        }
+    }
+
+    private func guessBackdrop(for frame: NSRect) {
         let light: Bool
         if Self.tuckColor != "auto" {
             // 手动定了颜色：白色是给深色背景用的
@@ -887,10 +920,32 @@ final class FloatingBall {
 
     /// 胶囊后面是什么：最前面盖住这块的是 Groove 自己的窗口就按它的外观；是别的 App 的窗口就按系统的深色 / 浅色外观
     /// （窗口里具体画了什么要「屏幕录制」权限才看得到，这里只用窗口的位置）；没有窗口就看桌面壁纸那一块的亮度
+    /// 开了「读取屏幕颜色」并且有权限时，直接截胶囊后面那块看亮度（不带胶囊自己），截不到再按上面的办法猜
     private func updateIslandBackdrop() {
         guard inIsland, let notch = islandNotch else { return }
         let area = NSRect(x: notch.minX, y: notch.minY - Self.islandGap - islandContentHeight,
                           width: notch.width, height: islandContentHeight)
+        if ScreenColorSampler.enabled, ScreenColorSampler.granted {
+            guard !islandSampling else { return }
+            islandSampling = true
+            Task {
+                let lum = await ScreenColorSampler.luminance(of: area, excluding: self.ownWindowNumbers)
+                self.islandSampling = false
+                guard self.inIsland else { return }
+                if let lum { self.setIslandBackdropLight(lum > 0.55) } else { self.guessIslandBackdrop(area: area, notch: notch) }
+            }
+            return
+        }
+        guessIslandBackdrop(area: area, notch: notch)
+    }
+
+    private func setIslandBackdropLight(_ light: Bool) {
+        if light != islandBackdropLight {
+            withAnimation(.easeInOut(duration: 0.3)) { islandBackdropLight = light }
+        }
+    }
+
+    private func guessIslandBackdrop(area: NSRect, notch: NSRect) {
         let systemLight = UserDefaults.standard.string(forKey: "AppleInterfaceStyle") != "Dark"
         var light: Bool?
         // 窗口列表用的坐标原点在主屏幕左上角，往下是正
@@ -916,10 +971,7 @@ final class FloatingBall {
            let lum = Self.wallpaperBrightness(behind: area, on: screen) {
             light = lum > 0.55
         }
-        let result = light ?? systemLight
-        if result != islandBackdropLight {
-            withAnimation(.easeInOut(duration: 0.3)) { islandBackdropLight = result }
-        }
+        setIslandBackdropLight(light ?? systemLight)
     }
 
     /// 从刘海上拖下来以后，鼠标还按在刘海的窗口上，移动交给这里让球跟着走
