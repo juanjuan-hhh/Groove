@@ -600,14 +600,24 @@ struct LyricOffsetMenuItems: View {
 
     var body: some View {
         let step = PlayerController.lyricOffsetStep
-        Button("歌词延后 0.25 秒（歌词快了）") { player.adjustLyricOffset(by: -step) }
+        Button("歌词延后 0.25 秒") { player.adjustLyricOffset(by: -step) }
             .disabled(!player.hasSyncedLyrics)
             .keyboardShortcut(showShortcuts ? KeyboardShortcut("[", modifiers: [.command, .option]) : nil)
-        Button("歌词提前 0.25 秒（歌词慢了）") { player.adjustLyricOffset(by: step) }
+        Button("歌词提前 0.25 秒") { player.adjustLyricOffset(by: step) }
             .disabled(!player.hasSyncedLyrics)
             .keyboardShortcut(showShortcuts ? KeyboardShortcut("]", modifiers: [.command, .option]) : nil)
-        Button("歌词时间复位（\(player.lyricOffsetLabel)）") { player.resetLyricOffset() }
+        // 只是显示现在调了多少，点不了
+        Button(currentLabel) {}
+            .disabled(true)
+        Button("歌词时间复位") { player.resetLyricOffset() }
             .disabled(player.lyricOffset == 0)
+    }
+
+    /// 「当前歌词提前0.25s」「当前歌词延后0.5s」，没调过是「当前歌词未调整」
+    private var currentLabel: String {
+        let offset = player.lyricOffset
+        if offset == 0 { return "当前歌词未调整" }
+        return "当前歌词" + (offset > 0 ? "提前" : "延后") + PlayerController.seconds(abs(offset))
     }
 }
 
@@ -849,7 +859,7 @@ struct LyricOffsetBar: View {
         VStack(spacing: 6) {
             HStack(spacing: 8) {
                 barButton("延后", icon: "backward.fill", leading: true) { player.adjustLyricOffset(by: -step) }
-                    .help("歌词延后 0.25 秒（歌词快了）⌥⌘[")
+                    .help("歌词延后 0.25 秒 ⌥⌘[")
                 Button {
                     if player.lyricOffset != 0 { player.resetLyricOffset() }
                 } label: {
@@ -866,7 +876,7 @@ struct LyricOffsetBar: View {
                 .buttonStyle(.plain)
                 .help("点一下复位")
                 barButton("提前", icon: "forward.fill", leading: false) { player.adjustLyricOffset(by: step) }
-                    .help("歌词提前 0.25 秒（歌词慢了）⌥⌘]")
+                    .help("歌词提前 0.25 秒 ⌥⌘]")
                 Button {
                     withAnimation(.easeInOut(duration: 0.25)) { player.adjustingLyrics = false }
                 } label: {
