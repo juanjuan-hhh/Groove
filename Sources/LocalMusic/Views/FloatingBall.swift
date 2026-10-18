@@ -277,6 +277,8 @@ final class FloatingBall {
         panel.hasShadow = true
         cancelTuck()
         dock = nil
+        // 贴上边时歌词在菜单栏里、没挂在球上：拖起来时挪回球旁边、重新挂上
+        if lyricInMenuBar { positionLyricPanel(for: panel.frame) }
         tucked = false
         withAnimation(.easeInOut(duration: 0.15)) { tuckedEdge = nil }
     }
@@ -1147,9 +1149,12 @@ final class FloatingBall {
             // 没有胶囊底，只有字，字号和菜单栏上的字差不多（13pt）
             let fit = min(normalScale, 13 / 14)
             if fit != lyricScale { lyricScale = fit }
+            // 不挂在球的窗口上：鼠标移上去球滑出来时，字留在菜单栏里不跟着动
+            if lyricPanel.parent != nil { lyricPanel.parent?.removeChildWindow(lyricPanel) }
             let onLeft = lyricSide(for: ball)
             if onLeft != lyricOnLeft { lyricOnLeft = onLeft }
-            let x = onLeft ? ball.minX - lyricGap - lyricWidth : ball.maxX + lyricGap
+            let gap: CGFloat = 16
+            let x = onLeft ? ball.minX - gap - lyricWidth : ball.maxX + gap
             let height = bar - 2
             let y = screen.frame.maxY - bar / 2 - height / 2
             lyricPanel.setFrame(NSRect(x: x, y: y, width: lyricWidth, height: height), display: false)
@@ -1157,6 +1162,10 @@ final class FloatingBall {
         }
         if lyricInMenuBar { lyricInMenuBar = false }
         if lyricScale != normalScale { lyricScale = normalScale }
+        // 从菜单栏里出来：重新挂回球的窗口上，跟着球一起动
+        if lyricPanel.parent == nil, let panel, panel.isVisible, lyricPanel.isVisible {
+            panel.addChildWindow(lyricPanel, ordered: .above)
+        }
         // 贴在下边（或者上边没有菜单栏时）：歌词条放在球的上面 / 下面，左右以球为中心，不出屏幕
         if dock == .top || dock == .bottom, dragStart == nil, let screen = panel?.screen ?? NSScreen.main {
             if !lyricCentered { lyricCentered = true }
