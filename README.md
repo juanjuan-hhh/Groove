@@ -59,3 +59,9 @@ Sources/LocalMusic/
   Online/                    封面 / 歌词的加载顺序和联网获取
   Views/                     界面
 ```
+
+## 使用许可
+
+仅供个人使用，禁止商用。
+
+For personal use only. Commercial use is prohibited.
