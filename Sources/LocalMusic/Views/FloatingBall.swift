@@ -186,6 +186,8 @@ final class FloatingBall {
         // 吸附在刘海上时球的位置不算数，留着上次的；「吸附在刘海上」也记着，下次出来还在刘海上
         if inIsland {
             inIsland = false
+            islandTimer?.invalidate()
+            islandTimer = nil
             islandExpanded = false
             islandPanel?.orderOut(nil)
         } else {
@@ -754,6 +756,9 @@ final class FloatingBall {
     private(set) var islandExpanded = false
     /// 刘海的大小（胶囊放在它下面，至少和它一样宽）
     private(set) var islandNotchSize = CGSize(width: 200, height: 32)
+    /// 刘海下面那块背后是不是浅色的（浅色 → 胶囊用深色毛玻璃；深色 → 浅色毛玻璃，两种都看得清）
+    private(set) var islandBackdropLight = false
+    @ObservationIgnored private var islandTimer: Timer?
     @ObservationIgnored private var islandPanel: NSPanel?
     @ObservationIgnored private var islandNotch: NSRect?
     @ObservationIgnored private var screenObserver: Any?
@@ -813,6 +818,7 @@ final class FloatingBall {
         islandExpanded = false
         positionIsland()
         island.orderFrontRegardless()
+        startIslandBackdropWatch()
         if animated && panel.isVisible {
             let dot = NSRect(x: notch.midX - 8, y: notch.midY - 8, width: 16, height: 16)
             panel.hasShadow = false
@@ -844,6 +850,8 @@ final class FloatingBall {
     func leaveIsland(dragFrom mouse: NSPoint? = nil) {
         guard inIsland, let panel, let player = menuPlayer else { return }
         inIsland = false
+        islandTimer?.invalidate()
+        islandTimer = nil
         UserDefaults.standard.set(false, forKey: Self.islandKey)
         withAnimation(.easeInOut(duration: 0.2)) { islandExpanded = false }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
@@ -865,6 +873,52 @@ final class FloatingBall {
         } else {
             updateDock(for: panel.frame)
             scheduleTuck(after: 1.5)
+        }
+    }
+
+    /// 每秒看一眼胶囊后面是深色还是浅色（切换窗口、换壁纸、改外观时跟着变）
+    private func startIslandBackdropWatch() {
+        islandTimer?.invalidate()
+        updateIslandBackdrop()
+        islandTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
+            MainActor.assumeIsolated { FloatingBall.shared.updateIslandBackdrop() }
+        }
+    }
+
+    /// 胶囊后面是什么：最前面盖住这块的是 Groove 自己的窗口就按它的外观；是别的 App 的窗口就按系统的深色 / 浅色外观
+    /// （窗口里具体画了什么要「屏幕录制」权限才看得到，这里只用窗口的位置）；没有窗口就看桌面壁纸那一块的亮度
+    private func updateIslandBackdrop() {
+        guard inIsland, let notch = islandNotch else { return }
+        let area = NSRect(x: notch.minX, y: notch.minY - Self.islandGap - islandContentHeight,
+                          width: notch.width, height: islandContentHeight)
+        let systemLight = UserDefaults.standard.string(forKey: "AppleInterfaceStyle") != "Dark"
+        var light: Bool?
+        // 窗口列表用的坐标原点在主屏幕左上角，往下是正
+        let primaryHeight = NSScreen.screens.first?.frame.maxY ?? 0
+        let cgArea = CGRect(x: area.minX, y: primaryHeight - area.maxY, width: area.width, height: area.height)
+        let infos = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+        let me = ProcessInfo.processInfo.processIdentifier
+        for info in infos {
+            guard (info[kCGWindowLayer as String] as? Int) == 0,
+                  (info[kCGWindowAlpha as String] as? Double ?? 1) > 0.1,
+                  let dict = info[kCGWindowBounds as String] as? NSDictionary,
+                  let bounds = CGRect(dictionaryRepresentation: dict),
+                  bounds.intersects(cgArea) else { continue }
+            if (info[kCGWindowOwnerPID as String] as? Int32) == me,
+               let main = NSApp.windows.first(where: { !($0 is NSPanel) && $0.isVisible && $0.canBecomeMain && !$0.isMiniaturized }) {
+                light = main.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) != .darkAqua
+            } else {
+                light = systemLight
+            }
+            break
+        }
+        if light == nil, let screen = NSScreen.screens.first(where: { $0.frame.contains(NSPoint(x: notch.midX, y: notch.midY)) }),
+           let lum = Self.wallpaperBrightness(behind: area, on: screen) {
+            light = lum > 0.55
+        }
+        let result = light ?? systemLight
+        if result != islandBackdropLight {
+            withAnimation(.easeInOut(duration: 0.3)) { islandBackdropLight = result }
         }
     }
 

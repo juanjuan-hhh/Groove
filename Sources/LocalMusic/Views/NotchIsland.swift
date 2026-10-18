@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 /// 悬浮球吸附在刘海上时显示的东西：刘海下面隔一小段悬着一个歌词胶囊，样子和球旁边的歌词胶囊一样
-/// （玻璃底、字号跟着「歌词胶囊大小」）；开了「显示两行歌词」时下面再加淡一点的下一句。
+/// （药丸形、字号跟着「歌词胶囊大小」），底是毛玻璃，按背后深浅换深色 / 浅色；开了「显示两行歌词」时下面再加淡一点的下一句。
 /// 没有逐句歌词时显示歌名（两行时下面是歌手）。
 struct NotchIslandView: View {
     @Environment(PlayerController.self) private var player
@@ -17,8 +17,10 @@ struct NotchIslandView: View {
         let pad = 16 * s
         let textWidth = max(Self.width(of: line, size: 14 * s, weight: .semibold),
                             twoLines ? Self.width(of: next, size: 11 * s, weight: .medium) : 0)
-        // 至少和刘海一样宽，歌词长就往两边变宽，最宽到 islandMaxWidth
-        let capsuleWidth = min(ball.islandMaxWidth, max(notch.width, textWidth + pad * 2))
+        // 宽度跟着歌词长短走，换句时跟着变；最宽到 islandMaxWidth
+        let capsuleWidth = min(ball.islandMaxWidth, max(60 * s, textWidth + pad * 2))
+        // 后面浅就用深色毛玻璃 + 浅色字，后面深就用浅色毛玻璃 + 深色字
+        let dark = ball.islandBackdropLight
         let height = ball.islandContentHeight
         let radius = 18 * s
 
@@ -27,7 +29,7 @@ struct NotchIslandView: View {
             ZStack {
                 Text(line)
                     .font(.ui(14 * s, .semibold))
-                    .foregroundStyle(Theme.text)
+                    .foregroundStyle(dark ? Color.white : Color.black.opacity(0.85))
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .id(line)
@@ -37,7 +39,7 @@ struct NotchIslandView: View {
             if twoLines {
                 Text(next)
                     .font(.ui(11 * s, .medium))
-                    .foregroundStyle(Theme.text2)
+                    .foregroundStyle(dark ? Color.white.opacity(0.55) : Color.black.opacity(0.5))
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .id(next)
@@ -49,11 +51,18 @@ struct NotchIslandView: View {
         .clipped()
         .background {
             ZStack {
-                GlassBackground(cornerRadius: radius)
-                RoundedRectangle(cornerRadius: radius, style: .continuous).fill(Theme.card.opacity(0.35))
+                FrostBackground(dark: dark)
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .fill(dark ? Color.black.opacity(0.28) : Color.white.opacity(0.35))
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+        // 细边 + 淡阴影，背后和胶囊颜色接近时也分得出边
+        .overlay {
+            RoundedRectangle(cornerRadius: radius, style: .continuous)
+                .strokeBorder(dark ? Color.white.opacity(0.14) : Color.black.opacity(0.08), lineWidth: 0.5)
+        }
+        .shadow(color: .black.opacity(dark ? 0.25 : 0.18), radius: 5, y: 2)
         .contentShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
         .animation(.easeInOut(duration: 0.35), value: line)
         .animation(.spring(response: 0.42, dampingFraction: 0.82), value: capsuleWidth)
@@ -91,5 +100,27 @@ struct NotchIslandView: View {
             font = NSFont(descriptor: rounded, size: size) ?? font
         }
         return ceil((text as NSString).size(withAttributes: [.font: font]).width)
+    }
+}
+
+/// 刘海歌词胶囊的毛玻璃：把后面的东西模糊掉；dark 时用深色外观，不然用浅色外观
+private struct FrostBackground: NSViewRepresentable {
+    var dark: Bool
+
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = FrostView()
+        view.material = .hudWindow
+        view.blendingMode = .behindWindow
+        view.state = .active
+        view.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+        return view
+    }
+
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
+        nsView.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+    }
+
+    private final class FrostView: NSVisualEffectView {
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
     }
 }
