@@ -36,8 +36,8 @@ struct NotchIslandView: View {
             ZStack {
                 FrostBackground(dark: dark)
                 if let tint {
-                    Rectangle().fill(Theme.bg.opacity(0.5))
-                    Rectangle().fill(tint.opacity(0.28))
+                    Rectangle().fill(Theme.bg.opacity(0.72))
+                    Rectangle().fill(tint.opacity(0.3))
                 } else {
                     Rectangle().fill(dark ? Color.black.opacity(0.28) : Color.white.opacity(0.35))
                 }

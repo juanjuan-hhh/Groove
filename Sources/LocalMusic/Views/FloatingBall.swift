@@ -1664,8 +1664,8 @@ private struct FloatingLyricView: View {
                     GlassBackground(cornerRadius: 18 * s)
                     // 跟随封面颜色：像正在播放页的背景，页面底色为主、淡淡透出封面色；不然是原来的淡底
                     if let tint {
-                        RoundedRectangle(cornerRadius: 18 * s, style: .continuous).fill(Theme.bg.opacity(0.5))
-                        RoundedRectangle(cornerRadius: 18 * s, style: .continuous).fill(tint.opacity(0.28))
+                        RoundedRectangle(cornerRadius: 18 * s, style: .continuous).fill(Theme.bg.opacity(0.72))
+                        RoundedRectangle(cornerRadius: 18 * s, style: .continuous).fill(tint.opacity(0.3))
                     } else {
                         RoundedRectangle(cornerRadius: 18 * s, style: .continuous).fill(Theme.card.opacity(0.35))
                     }
