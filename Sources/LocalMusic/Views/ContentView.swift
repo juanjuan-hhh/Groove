@@ -220,7 +220,7 @@ struct TopBar: View {
                 Divider()
                 OutputMenuItems()
                 Divider()
-                Toggle("自动联网获取缺少的封面和歌词", isOn: $autoFetch)
+                Toggle("自动联网获取缺少的歌词", isOn: $autoFetch)
                 Toggle("播放时旋转封面", isOn: $spinCover)
                 // 悬浮球的其他设置在悬浮球上点右键
                 Toggle("一直显示悬浮球", isOn: Binding(get: { ballAlwaysOn },

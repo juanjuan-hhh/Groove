@@ -29,9 +29,9 @@ enum AppSettings {
     }
 }
 
-/// 联网获取封面（iTunes 搜索接口，找不到再用网易云）和歌词（LRCLIB，再加上用户自己添加的歌词源），
-/// 结果缓存在本地，下次直接读取。网易云用的是网页版自己的接口，不是公开 API，任何失败都直接跳过。
-/// （以前还从酷狗、QQ 音乐、网易云下载歌词、从酷狗找封面，因为版权问题去掉了；之前下载好的缓存照旧能用）
+/// 联网获取歌词（LRCLIB，再加上用户自己添加的歌词源），结果缓存在本地，下次直接读取。
+/// （以前还从酷狗、QQ 音乐、网易云下载歌词，从 iTunes、酷狗、网易云下载封面，因为版权问题都去掉了；
+/// 之前下载好的歌词、封面缓存照旧能用，也能在菜单里删掉）
 enum OnlineMedia {
     // MARK: 缓存
 
@@ -154,85 +154,11 @@ enum OnlineMedia {
         return URLSession(configuration: config)
     }()
 
-    /// referer：网易云的接口要带上 music.163.com 的来源页
-    static func getData(_ url: URL, referer: String? = nil) async throws -> Data {
-        var request = URLRequest(url: url)
-        if let referer { request.setValue(referer, forHTTPHeaderField: "Referer") }
+    static func getData(_ url: URL) async throws -> Data {
+        let request = URLRequest(url: url)
         let (data, response) = try await session.data(for: request)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
         return data
-    }
-
-    // MARK: 封面
-
-    private struct ITunesResponse: Decodable {
-        struct Item: Decodable {
-            let trackName: String?
-            let artistName: String?
-            let artworkUrl100: String?
-        }
-        let results: [Item]
-    }
-
-    static func fetchCover(for track: Track) async -> Data? {
-        for country in ["cn", "us"] {
-            guard let artURL = await searchITunes(track, country: country), let url = URL(string: artURL) else { continue }
-            if let data = try? await getData(url), !data.isEmpty {
-                try? data.write(to: coverFile(track))
-                return data
-            }
-        }
-        for find in [neteaseCover] {
-            if let artURL = await find(track), let url = URL(string: artURL),
-               let data = try? await getData(url), !data.isEmpty {
-                try? data.write(to: coverFile(track))
-                return data
-            }
-        }
-        return nil
-    }
-
-    private static func searchITunes(_ track: Track, country: String) async -> String? {
-        let artist = track.hasKnownArtist ? track.artist : ""
-        var comps = URLComponents(string: "https://itunes.apple.com/search")!
-        comps.queryItems = [
-            URLQueryItem(name: "term", value: "\(track.title) \(artist)".trimmingCharacters(in: .whitespaces)),
-            URLQueryItem(name: "media", value: "music"),
-            URLQueryItem(name: "entity", value: "song"),
-            URLQueryItem(name: "limit", value: "15"),
-            URLQueryItem(name: "country", value: country),
-        ]
-        guard let url = comps.url,
-              let data = try? await getData(url),
-              let response = try? JSONDecoder().decode(ITunesResponse.self, from: data) else { return nil }
-
-        let wantTitle = normalize(track.title)
-        let wantArtist = normalize(artist)
-        guard !wantTitle.isEmpty else { return nil }
-
-        var best: (score: Int, art: String)?
-        for item in response.results {
-            guard let art = item.artworkUrl100 else { continue }
-            let title = normalize(item.trackName ?? "")
-            let itemArtist = normalize(item.artistName ?? "")
-            guard !title.isEmpty else { continue }
-
-            var score = 0
-            if title == wantTitle {
-                score += 3
-            } else if title.contains(wantTitle) || wantTitle.contains(title) {
-                score += 1
-            } else {
-                continue
-            }
-            if !wantArtist.isEmpty {
-                guard !itemArtist.isEmpty,
-                      itemArtist.contains(wantArtist) || wantArtist.contains(itemArtist) else { continue }
-                score += 3
-            }
-            if best == nil || score > best!.score { best = (score, art) }
-        }
-        return best?.art.replacingOccurrences(of: "100x100bb", with: "600x600bb")
     }
 
     // MARK: 歌词
@@ -323,93 +249,6 @@ enum OnlineMedia {
         let wantArtist = normalize(track.artist), artist = normalize(item.artistName ?? "")
         guard !title.isEmpty, title == wantTitle || title.contains(wantTitle) || wantTitle.contains(title) else { return false }
         return !artist.isEmpty && (artist.contains(wantArtist) || wantArtist.contains(artist))
-    }
-
-    // MARK: 网易云音乐（网页版自己用的接口，只用来找封面，任何失败都直接跳过）
-
-    static let neteaseReferer = "https://music.163.com"
-
-    struct NetEaseSong: Sendable {
-        let id: Int
-        let name: String
-        let artists: [String]
-        let album: String?
-        let duration: Double?   // 秒
-        let picURL: String?
-    }
-
-    private struct NetEaseSearchResponse: Decodable {
-        struct Named: Decodable { let name: String? }
-        struct Album: Decodable { let name: String?; let picUrl: String? }
-        struct Song: Decodable {
-            let id: Int
-            let name: String?
-            let ar: [Named]?
-            let al: Album?
-            let dt: Double?   // 毫秒
-        }
-        struct Result: Decodable { let songs: [Song]? }
-        let code: Int
-        let result: Result?
-    }
-
-    /// 网易云歌曲搜索（cloudsearch：结果带歌手、专辑封面、时长，比旧的 /api/search/get 准）
-    static func neteaseSearch(_ keyword: String, count: Int) async -> [NetEaseSong]? {
-        var comps = URLComponents(string: "https://music.163.com/api/cloudsearch/pc")!
-        comps.queryItems = [
-            URLQueryItem(name: "s", value: keyword),
-            URLQueryItem(name: "type", value: "1"),
-            URLQueryItem(name: "limit", value: String(count)),
-            URLQueryItem(name: "offset", value: "0"),
-        ]
-        guard let url = comps.url,
-              let data = try? await getData(url, referer: neteaseReferer),
-              let response = try? JSONDecoder().decode(NetEaseSearchResponse.self, from: data),
-              response.code == 200 else { return nil }
-        return (response.result?.songs ?? []).compactMap { song in
-            guard let name = song.name, !name.isEmpty else { return nil }
-            return NetEaseSong(id: song.id, name: name, artists: (song.ar ?? []).compactMap(\.name),
-                               album: song.al?.name.flatMap { $0.isEmpty ? nil : $0 },
-                               duration: song.dt.map { $0 / 1000 }, picURL: song.al?.picUrl)
-        }
-    }
-
-    /// 网易云专辑封面（改成 https、500 尺寸）
-    static func neteaseCoverURL(_ pic: String?) -> URL? {
-        guard let pic, !pic.isEmpty else { return nil }
-        return URL(string: pic.replacingOccurrences(of: "http://", with: "https://") + "?param=500y500")
-    }
-
-    /// 自动找：用「歌手 歌名」搜，再按歌名、歌手、时长挑最像的一首
-    private static func neteaseBest(_ track: Track, needsCover: Bool) async -> NetEaseSong? {
-        let keyword = track.hasKnownArtist ? "\(track.artist) \(track.title)" : track.title
-        guard let songs = await neteaseSearch(keyword, count: 15) else { return nil }
-        let wantTitle = normalize(track.title)
-        let wantArtist = track.hasKnownArtist ? normalize(track.artist) : ""
-        guard !wantTitle.isEmpty else { return nil }
-        func score(_ song: NetEaseSong) -> Int? {
-            if needsCover && (song.picURL ?? "").isEmpty { return nil }
-            let title = normalize(song.name)
-            guard !title.isEmpty, title == wantTitle || title.contains(wantTitle) || wantTitle.contains(title) else { return nil }
-            var s = title == wantTitle ? 3 : 1
-            if !wantArtist.isEmpty {
-                let artists = song.artists.map(normalize)
-                guard artists.contains(where: { !$0.isEmpty && ($0.contains(wantArtist) || wantArtist.contains($0)) }) else { return nil }
-                s += 3
-            }
-            if let d = song.duration, track.duration > 0, abs(d - track.duration) <= 3 { s += 2 }
-            return s
-        }
-        // 分数一样时取靠前的（网易云已按匹配度排序）
-        var best: (song: NetEaseSong, score: Int)?
-        for song in songs {
-            if let sc = score(song), sc > (best?.score ?? -1) { best = (song, sc) }
-        }
-        return best?.song
-    }
-
-    private static func neteaseCover(_ track: Track) async -> String? {
-        await neteaseBest(track, needsCover: true).flatMap { neteaseCoverURL($0.picURL)?.absoluteString }
     }
 
     // MARK: 工具

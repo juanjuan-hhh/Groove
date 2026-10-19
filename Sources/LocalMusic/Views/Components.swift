@@ -161,7 +161,7 @@ struct TrackMenuItems: View {
             Button("从歌单中移除") { library.remove(track, from: playlistID) }
         }
         Divider()
-        Button("联网搜索封面和歌词…") { player.openOnlineSearch(for: track) }
+        Button("联网搜索歌词…") { player.openOnlineSearch(for: track) }
         Button("自定义封面…") { player.chooseCustomCover(for: track) }
         Button("导入本地歌词…") { player.importLocalLyrics(for: track) }
         Button("在访达中显示") { NSWorkspace.shared.activateFileViewerSelecting([track.url]) }

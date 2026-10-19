@@ -2,7 +2,7 @@
 
 一个原生 SwiftUI 写的 Mac 本地音乐播放器，界面是暖色调的「Porthole」风格（深色 / 浅色两套）。需要 macOS 14 或更新版本。
 
-A native SwiftUI local music player for macOS 14+, with lyrics, cover art fetching and a floating mini ball.
+A native SwiftUI local music player for macOS 14+, with synced lyrics (LRCLIB) and a floating mini ball.
 
 ## 下载安装
 
@@ -39,7 +39,7 @@ xattr -cr /Applications/Groove.app
 - **拼音 / 英文首字母排序**：中文按拼音、英文按字母，统一按 A–Z 分组，右侧字母索引可以拖动；也能按歌手、专辑、时长、修改时间排序。
 - **搜索**：歌名、歌手、专辑，也支持拼音（`qingtian`）和拼音首字母（`qt`）。
 - **音质标签**：SQ（无损，16bit）和 HR（高解析，24bit 或高于 48kHz）。
-- **封面和歌词**：优先用文件内嵌的、同文件夹的 `cover.jpg` / 同名 `.lrc`（支持 GBK 编码），都没有才联网获取（封面：iTunes、网易云；歌词：只用公开的 LRCLIB）。「联网搜索」面板里的「自定义歌词源」可以自己添加歌词网址（默认没有，添加的来源由你自己负责）。也可以手动「联网搜索封面和歌词」挑一个；App 下载的可以一键删除，不动音乐文件。
+- **封面和歌词**：优先用文件内嵌的、同文件夹的 `cover.jpg` / 同名 `.lrc`（支持 GBK 编码），歌词都没有时联网从公开的 LRCLIB 获取，「联网搜索」面板里的「自定义歌词源」可以自己添加歌词网址（默认没有，添加的来源由你自己负责），也可以在面板里手动挑一份。封面不联网获取，可以用「自定义封面…」选一张本地图片。App 下载或选择的封面、歌词可以一键删除，不动音乐文件。
 - **正在播放 / 歌词页**：旋转的圆形封面 + 封面色模糊背景，歌词同步滚动、点某一行跳过去，可以微调歌词快慢。
 - **悬浮球**（⇧⌘M）：主窗口收起，屏幕上留一个转动的封面小球，外圈是进度；鼠标移上去有上一首 / 播放暂停 / 下一首；拖到屏幕边缘自动贴边藏起一半；旁边可以显示当前一句歌词；大小可以在设置里调。
 - **其它**：底部迷你播放条、播放队列、睡眠定时、媒体键和控制中心、空格播放/暂停、⌘← / ⌘→ 切歌、双击顶栏铺满屏幕。
@@ -56,7 +56,7 @@ Sources/LocalMusic/
   Models/Track.swift         歌曲、歌单数据结构
   Library/                   扫描音乐库、读取标签、拼音排序、FLAC/LRC 解析
   Player/PlayerController    播放、队列、随机循环、睡眠定时、媒体键
-  Online/                    封面 / 歌词的加载顺序和联网获取
+  Online/                    歌词的加载顺序和联网获取（LRCLIB、自定义歌词源）
   Views/                     界面
 ```
 
