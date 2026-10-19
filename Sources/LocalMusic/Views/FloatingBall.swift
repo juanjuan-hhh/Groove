@@ -82,6 +82,32 @@ final class FloatingBall {
     private(set) var lyricCentered = false
     /// 贴在上边时歌词放进菜单栏里（球旁边）：只显示一行，没有胶囊底，只有字
     private(set) var lyricInMenuBar = false
+
+    /// 「歌词胶囊跟随封面颜色」（默认开）：球旁边、上下边、刘海下面的歌词胶囊染成当前封面的颜色；
+    /// 关掉就是原来的样子（球旁边是玻璃底，刘海下面按后面的深浅换深色 / 浅色）。菜单栏里那行字不受影响
+    static let lyricCoverTintKey = "floatingLyricCoverTint"
+    static var lyricCoverTint: Bool { UserDefaults.standard.object(forKey: lyricCoverTintKey) as? Bool ?? true }
+    /// 当前这首歌封面的主色；没有封面时为 nil
+    private(set) var lyricTint: Color?
+    @ObservationIgnored private var lyricTintPath: String?
+
+    /// 换歌时重新取一次封面颜色（同一首不重复算）
+    func updateLyricTint(for track: Track?) async {
+        guard let track else {
+            lyricTintPath = nil
+            withAnimation(.easeInOut(duration: 0.5)) { lyricTint = nil }
+            return
+        }
+        guard track.path != lyricTintPath else { return }
+        lyricTintPath = track.path
+        let cover = await ArtworkProvider.shared.coverColor(for: track)
+        guard lyricTintPath == track.path else { return }
+        withAnimation(.easeInOut(duration: 0.5)) { lyricTint = cover.map { Color(nsColor: $0) } }
+    }
+
+    func setLyricCoverTint(_ on: Bool) {
+        UserDefaults.standard.set(on, forKey: Self.lyricCoverTintKey)
+    }
     @ObservationIgnored private weak var mainWindow: NSWindow?
 
     /// 球露着，或者吸附在刘海上（这时球藏起来，只显示刘海下面的歌词）
@@ -606,6 +632,9 @@ final class FloatingBall {
         }
         lyricsItem.submenu = sub
         menu.addItem(lyricsItem)
+        menu.addItem(item("歌词胶囊跟随封面颜色", checked: Self.lyricCoverTint, enabled: mode != .off) {
+            FloatingBall.shared.setLyricCoverTint(!FloatingBall.lyricCoverTint)
+        })
         menu.addItem(item("显示两行歌词", checked: Self.twoLines, enabled: mode != .off) {
             FloatingBall.shared.setTwoLines(!FloatingBall.twoLines)
         })
@@ -1583,6 +1612,12 @@ private struct FloatingLyricView: View {
     private var inBar: Bool { FloatingBall.shared.lyricInMenuBar }
     /// 菜单栏上的字的颜色：跟贴边半圆一样按后面的深浅反色（后面浅用黑字，深用白字）
     private var barTextColor: Color { FloatingBall.shared.backdropIsLight ? .black : .white }
+    @AppStorage(FloatingBall.lyricCoverTintKey) private var coverTintOn = true
+    /// 胶囊跟随封面颜色时用的封面色（菜单栏里没有底，不用）
+    private var tint: Color? { coverTintOn && !inBar ? FloatingBall.shared.lyricTint : nil }
+    /// 底色是页面底色为主、淡淡透一点封面色（和正在播放页的背景一样），字照常用主题的颜色
+    private var currentTextColor: Color { Theme.text }
+    private var otherTextColor: Color { Theme.text2 }
 
     var body: some View {
         let ball = FloatingBall.shared
@@ -1611,8 +1646,8 @@ private struct FloatingLyricView: View {
         .overlay(alignment: rowAlign) {
             if preview {
                 VStack(alignment: align, spacing: 2 * s) {
-                    Text(line).font(.ui(14 * s, .semibold)).foregroundStyle(Theme.text).lineLimit(1)
-                    if twoLines { Text(next).font(.ui(11 * s, .medium)).foregroundStyle(Theme.text2).lineLimit(1) }
+                    Text(line).font(.ui(14 * s, .semibold)).foregroundStyle(currentTextColor).lineLimit(1)
+                    if twoLines { Text(next).font(.ui(11 * s, .medium)).foregroundStyle(otherTextColor).lineLimit(1) }
                 }
             } else {
                 scrollingRows(scale: s, align: rowAlign)
@@ -1627,7 +1662,13 @@ private struct FloatingLyricView: View {
             if !inBar {
                 ZStack {
                     GlassBackground(cornerRadius: 18 * s)
-                    RoundedRectangle(cornerRadius: 18 * s, style: .continuous).fill(Theme.card.opacity(0.35))
+                    // 跟随封面颜色：像正在播放页的背景，页面底色为主、淡淡透出封面色；不然是原来的淡底
+                    if let tint {
+                        RoundedRectangle(cornerRadius: 18 * s, style: .continuous).fill(Theme.bg.opacity(0.5))
+                        RoundedRectangle(cornerRadius: 18 * s, style: .continuous).fill(tint.opacity(0.28))
+                    } else {
+                        RoundedRectangle(cornerRadius: 18 * s, style: .continuous).fill(Theme.card.opacity(0.35))
+                    }
                 }
             }
         }
@@ -1643,6 +1684,7 @@ private struct FloatingLyricView: View {
         .animation(.easeInOut(duration: 0.2), value: visible)
         // 胶囊不显示时整条歌词窗口都不接鼠标，不挡后面的东西
         .onChange(of: visible, initial: true) { _, shown in FloatingBall.shared.setLyricClickable(shown) }
+        .task(id: player.current?.path) { await FloatingBall.shared.updateLyricTint(for: player.current) }
     }
 
     /// 有字的歌词行（跳过空行），按顺序
@@ -1674,7 +1716,7 @@ private struct FloatingLyricView: View {
                     let shown = isCurrent || (twoLines && k == pos + 1)
                     Text(rows[k].text)
                         .font(.ui(14 * s, .semibold))
-                        .foregroundStyle(inBar ? barTextColor.opacity(isCurrent ? 1 : 0.6) : isCurrent ? Theme.text : Theme.text2)
+                        .foregroundStyle(inBar ? barTextColor.opacity(isCurrent ? 1 : 0.6) : isCurrent ? currentTextColor : otherTextColor)
                         // 菜单栏上没有底，衬一圈很淡的反色光，背景花的时候也看得清
                         .shadow(color: inBar ? barTextColor == .black ? .white.opacity(0.5) : .black.opacity(0.5) : .clear, radius: 1)
                         .lineLimit(1)

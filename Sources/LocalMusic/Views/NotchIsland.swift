@@ -7,6 +7,8 @@ import SwiftUI
 struct NotchIslandView: View {
     @Environment(PlayerController.self) private var player
     @AppStorage(FloatingBall.twoLinesKey) private var twoLines = false
+    @AppStorage(FloatingBall.lyricCoverTintKey) private var coverTintOn = true
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         let ball = FloatingBall.shared
@@ -19,8 +21,10 @@ struct NotchIslandView: View {
                             twoLines ? Self.width(of: next, size: 11 * s, weight: .medium) : 0)
         // 宽度跟着歌词长短走，换句时跟着变；最宽到 islandMaxWidth
         let capsuleWidth = min(ball.islandMaxWidth, max(60 * s, textWidth + pad * 2))
-        // 后面浅就用深色毛玻璃 + 浅色字，后面深就用浅色毛玻璃 + 深色字
-        let dark = ball.islandBackdropLight
+        // 跟随封面颜色：像正在播放页的背景，按 App 外观用深 / 浅毛玻璃，页面底色为主、淡淡透出封面色；
+        // 不跟随：后面浅就用深色毛玻璃 + 浅色字，后面深就用浅色毛玻璃 + 深色字
+        let tint = coverTintOn ? ball.lyricTint : nil
+        let dark = tint != nil ? colorScheme == .dark : ball.islandBackdropLight
         let height = ball.islandContentHeight
         let radius = 18 * s
 
@@ -31,7 +35,12 @@ struct NotchIslandView: View {
         ZStack {
             ZStack {
                 FrostBackground(dark: dark)
-                Rectangle().fill(dark ? Color.black.opacity(0.28) : Color.white.opacity(0.35))
+                if let tint {
+                    Rectangle().fill(Theme.bg.opacity(0.5))
+                    Rectangle().fill(tint.opacity(0.28))
+                } else {
+                    Rectangle().fill(dark ? Color.black.opacity(0.28) : Color.white.opacity(0.35))
+                }
             }
             .frame(width: full, height: height)
             VStack(spacing: 2 * s) {
@@ -78,6 +87,7 @@ struct NotchIslandView: View {
         .offset(y: open ? 0 : -(FloatingBall.islandGap + height / 2))
         .opacity(open ? 1 : 0)
         .padding(.top, notch.height + FloatingBall.islandGap)
+        .task(id: player.current?.path) { await FloatingBall.shared.updateLyricTint(for: player.current) }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .help("双击打开主窗口，往下拖变回悬浮球")
     }
