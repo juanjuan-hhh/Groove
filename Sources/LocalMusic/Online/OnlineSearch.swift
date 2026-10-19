@@ -2,21 +2,36 @@ import Foundation
 
 /// 「联网搜索」面板里的一条结果
 struct OnlineCandidate: Identifiable, Sendable {
-    enum Source: String, Sendable {
-        case lrclib = "LRCLIB"
-        case kugou = "酷狗"
-        case qq = "QQ 音乐"
-        case netease = "网易云"
-        case itunes = "iTunes"
+    /// 歌词只有 LRCLIB 和用户自己添加的源；酷狗、网易云、iTunes 只提供封面
+    enum Source: Hashable, Sendable {
+        case lrclib
+        case kugou
+        case netease
+        case itunes
+        case custom(CustomLyricSource)
+
+        var label: String {
+            switch self {
+            case .lrclib: "LRCLIB"
+            case .kugou: "酷狗"
+            case .netease: "网易云"
+            case .itunes: "iTunes"
+            case .custom(let source): source.name.isBlank ? "自定义" : source.name
+            }
+        }
+
+        /// 只有封面、没有歌词的来源
+        var coverOnly: Bool {
+            switch self {
+            case .kugou, .netease, .itunes: true
+            case .lrclib, .custom: false
+            }
+        }
     }
 
     /// 歌词从哪里取
     enum LyricsRef: Sendable {
-        case kugouHash(String)       // 酷狗歌曲的 hash，用到时再查歌词
-        case kugouID(String, String) // 酷狗歌词的 id + accesskey
-        case qqMid(String)           // QQ 音乐的 songmid，用到时再下载歌词
-        case neteaseID(Int)          // 网易云的歌曲 id，用到时再下载歌词
-        case text(String)            // 直接给了歌词文本（LRCLIB）
+        case text(String)            // 直接给了歌词文本（LRCLIB、自定义歌词源）
     }
 
     let id = UUID()
@@ -27,7 +42,7 @@ struct OnlineCandidate: Identifiable, Sendable {
     var duration: Double?
     var coverURL: URL?
     var lyrics: LyricsRef?
-    /// 是否带时间轴（只有 LRCLIB 能事先知道；酷狗等要下载后才知道，所以是 nil）
+    /// 是否带时间轴
     var synced: Bool?
 }
 
@@ -37,7 +52,7 @@ enum SourceResult: Sendable {
     case failed(String)
 }
 
-/// 「联网搜索」：同时查 LRCLIB、酷狗、QQ 音乐、网易云、iTunes，列出所有候选让用户自己选
+/// 「联网搜索」：同时查 LRCLIB 和用户自己添加的歌词源（歌词），酷狗、网易云、iTunes（封面），列出所有候选让用户自己选
 enum OnlineSearch {
     static func lrclib(_ query: String) async -> SourceResult {
         guard let items = await OnlineMedia.lrclibSearch(query: query) else { return .failed("连接失败") }
@@ -50,25 +65,26 @@ enum OnlineSearch {
         })
     }
 
-    static func netease(_ query: String) async -> SourceResult {
-        guard let songs = await OnlineMedia.neteaseSearch(query, count: 12) else { return .failed("连接失败") }
-        return .ok(songs.map { song in
-            OnlineCandidate(source: .netease, title: song.name, artist: song.artists.joined(separator: " / "),
-                            album: song.album, duration: song.duration,
-                            coverURL: OnlineMedia.neteaseCoverURL(song.picURL), lyrics: .neteaseID(song.id))
-        })
+    /// 用户自己添加的歌词源：{title} 用搜索框里的字，{artist} {album} {duration} 用这首歌的信息；找到就是一条结果
+    static func custom(_ source: CustomLyricSource, query: String, track: Track) async -> SourceResult {
+        guard CustomLyricSources.url(source.template, title: query, artist: "", album: "", duration: 0) != nil else {
+            return .failed("网址无效")
+        }
+        let artist = track.hasKnownArtist ? track.artist : ""
+        let album = track.hasKnownAlbum ? track.album : ""
+        guard let result = await CustomLyricSources.fetch(source, title: query, artist: artist, album: album,
+                                                          duration: track.duration) else { return .ok([]) }
+        return .ok([OnlineCandidate(source: .custom(source), title: query, artist: artist,
+                                    album: album.isEmpty ? nil : album, duration: result.duration,
+                                    lyrics: .text(result.text), synced: result.synced)])
     }
 
-    static func qq(_ query: String) async -> SourceResult {
-        guard let items = await OnlineMedia.qqSearch(query, count: 12) else { return .failed("连接失败") }
-        return .ok(items.compactMap { item in
-            guard let mid = item.songmid, let title = item.songname, !title.isEmpty else { return nil }
-            let artist = (item.singer ?? []).compactMap(\.name).joined(separator: " / ")
-            return OnlineCandidate(source: .qq, title: title, artist: artist,
-                                   album: item.albumname.flatMap { $0.isEmpty ? nil : $0 },
-                                   duration: item.interval.map(Double.init),
-                                   coverURL: OnlineMedia.qqCoverURL(albumMid: item.albummid),
-                                   lyrics: .qqMid(mid))
+    static func netease(_ query: String) async -> SourceResult {
+        guard let songs = await OnlineMedia.neteaseSearch(query, count: 12) else { return .failed("连接失败") }
+        return .ok(songs.compactMap { song in
+            guard let cover = OnlineMedia.neteaseCoverURL(song.picURL) else { return nil }
+            return OnlineCandidate(source: .netease, title: song.name, artist: song.artists.joined(separator: " / "),
+                                   album: song.album, duration: song.duration, coverURL: cover)
         })
     }
 
@@ -86,7 +102,6 @@ enum OnlineSearch {
                 let SingerName: String?
                 let AlbumName: String?
                 let Duration: Double?
-                let FileHash: String?
                 let Image: String?
             }
             struct Payload: Decodable { let lists: [Item] }
@@ -105,54 +120,22 @@ enum OnlineSearch {
             }
             if !items.isEmpty { break }
         }
-        // 歌曲搜索被限流时，退回到酷狗歌词搜索（只有歌词，没有封面）
-        if items.isEmpty { return await kugouLyricsSearch(query) }
+        // 只要带封面的
         return .ok(items.compactMap { item in
-            guard let title = clean(item.SongName), !title.isEmpty else { return nil }
+            guard let title = clean(item.SongName), !title.isEmpty,
+                  let image = item.Image, !image.isEmpty,
+                  let cover = URL(string: image
+                    .replacingOccurrences(of: "{size}", with: "480")
+                    .replacingOccurrences(of: "http://", with: "https://")) else { return nil }
             return OnlineCandidate(
                 source: .kugou,
                 title: title,
                 artist: clean(item.SingerName) ?? "",
                 album: clean(item.AlbumName).flatMap { $0.isEmpty ? nil : $0 },
                 duration: item.Duration,
-                coverURL: item.Image.flatMap { image in
-                    image.isEmpty ? nil : URL(string: image
-                        .replacingOccurrences(of: "{size}", with: "480")
-                        .replacingOccurrences(of: "http://", with: "https://"))
-                },
-                lyrics: item.FileHash.map { .kugouHash($0) }
+                coverURL: cover
             )
         })
-    }
-
-    private static func kugouLyricsSearch(_ query: String) async -> SourceResult {
-        var comps = URLComponents(string: "https://lyrics.kugou.com/search")!
-        comps.queryItems = [
-            URLQueryItem(name: "ver", value: "1"),
-            URLQueryItem(name: "man", value: "yes"),
-            URLQueryItem(name: "client", value: "pc"),
-            URLQueryItem(name: "keyword", value: query),
-        ]
-        guard let url = comps.url, let data = try? await OnlineMedia.getData(url),
-              let response = try? JSONDecoder().decode(KugouLyricsSearch.self, from: data) else {
-            return .failed("连接失败")
-        }
-        return .ok((response.candidates ?? []).compactMap { c in
-            guard let id = c.id, let key = c.accesskey, let title = c.song else { return nil }
-            return OnlineCandidate(source: .kugou, title: title, artist: c.singer ?? "",
-                                   duration: c.duration.map { Double($0) / 1000 }, lyrics: .kugouID(id, key))
-        })
-    }
-
-    struct KugouLyricsSearch: Decodable {
-        struct Candidate: Decodable {
-            let id: String?
-            let accesskey: String?
-            let song: String?
-            let singer: String?
-            let duration: Int?
-        }
-        let candidates: [Candidate]?
     }
 
     static func itunes(_ query: String) async -> SourceResult {
@@ -191,25 +174,10 @@ enum OnlineSearch {
         return anySucceeded ? .ok(all) : .failed("连接失败")
     }
 
-    /// 取出候选的歌词文本（酷狗的要再下载一次）
+    /// 取出候选的歌词文本
     static func lyrics(for candidate: OnlineCandidate) async -> String? {
         switch candidate.lyrics {
         case .text(let text): return text
-        case .kugouID(let id, let key): return await OnlineMedia.kugouDownloadLyrics(id: id, accessKey: key)
-        case .qqMid(let mid): return await OnlineMedia.qqDownloadLyrics(mid: mid)
-        case .neteaseID(let id): return await OnlineMedia.neteaseDownloadLyrics(id: id)
-        case .kugouHash(let hash):
-            var comps = URLComponents(string: "https://lyrics.kugou.com/search")!
-            comps.queryItems = [
-                URLQueryItem(name: "ver", value: "1"),
-                URLQueryItem(name: "man", value: "yes"),
-                URLQueryItem(name: "client", value: "pc"),
-                URLQueryItem(name: "hash", value: hash),
-            ]
-            guard let url = comps.url, let data = try? await OnlineMedia.getData(url),
-                  let response = try? JSONDecoder().decode(KugouLyricsSearch.self, from: data),
-                  let best = response.candidates?.first, let id = best.id, let key = best.accesskey else { return nil }
-            return await OnlineMedia.kugouDownloadLyrics(id: id, accessKey: key)
         case nil: return nil
         }
     }

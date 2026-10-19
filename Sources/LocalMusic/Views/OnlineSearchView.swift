@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 「联网搜索」面板：同时查 酷狗 / QQ 音乐 / iTunes（iTunes 只有封面），列出所有结果，自己选用哪个封面、哪份歌词
+/// 「联网搜索」面板：歌词查 LRCLIB 和用户自己添加的歌词源，封面查酷狗 / 网易云 / iTunes，列出所有结果，自己选用哪个封面、哪份歌词
 struct OnlineSearchView: View {
     let track: Track
 
@@ -19,7 +19,9 @@ struct OnlineSearchView: View {
         case empty
     }
 
-    private static let sources: [OnlineCandidate.Source] = [.lrclib, .kugou, .qq, .netease, .itunes]
+    /// 歌词：LRCLIB + 打开着的自定义歌词源；封面：酷狗、网易云、iTunes
+    @State private var sources: [OnlineCandidate.Source] =
+        [.lrclib] + CustomLyricSources.enabled.map { .custom($0) } + [.kugou, .netease, .itunes]
 
     /// 点了某个来源的胶囊：只显示这个来源的结果（再点一下显示全部）
     @State private var filter: OnlineCandidate.Source?
@@ -42,7 +44,7 @@ struct OnlineSearchView: View {
             sourceBar
             ScrollView {
                 LazyVStack(spacing: 2) {
-                    ForEach(Self.sources, id: \.self) { source in
+                    ForEach(sources, id: \.self) { source in
                         if filter == nil || filter == source, case .done(let list) = states[source] {
                             ForEach(list) { row($0) }
                         }
@@ -106,8 +108,13 @@ struct OnlineSearchView: View {
 
     /// 每个来源的状态：结果数 / 加载中 / 失败。点一下只看这个来源，再点一下看全部
     private var sourceBar: some View {
+        // 自定义歌词源多了一行放不下，可以左右滑
+        ScrollView(.horizontal, showsIndicators: false) { sourceChips }
+    }
+
+    private var sourceChips: some View {
         HStack(spacing: 8) {
-            ForEach(Self.sources, id: \.self) { source in
+            ForEach(sources, id: \.self) { source in
                 let state = states[source] ?? .loading
                 let selected = filter == source
                 Button {
@@ -115,7 +122,7 @@ struct OnlineSearchView: View {
                 } label: {
                     HStack(spacing: 6) {
                         Circle().fill(sourceColor(source)).frame(width: 8, height: 8)
-                        Text(source == .itunes ? "iTunes 封面" : source.rawValue).font(.ui(12, .bold))
+                        Text(source.coverOnly ? "\(source.label) 封面" : source.label).font(.ui(12, .bold))
                             .foregroundStyle(selected ? Theme.onText : Theme.text)
                         switch state {
                         case .loading:
@@ -134,7 +141,7 @@ struct OnlineSearchView: View {
                     .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
-                .help(selected ? "显示全部来源" : "只看\(source.rawValue)的结果")
+                .help(selected ? "显示全部来源" : "只看\(source.label)的结果")
             }
             Spacer()
         }
@@ -154,7 +161,7 @@ struct OnlineSearchView: View {
                     Text([c.artist, c.album ?? ""].filter { !$0.isEmpty }.joined(separator: " · "))
                         .font(.ui(12)).foregroundStyle(Theme.text2).lineLimit(1)
                     HStack(spacing: 6) {
-                        ChipText(text: c.source.rawValue, color: sourceColor(c.source),
+                        ChipText(text: c.source.label, color: sourceColor(c.source),
                                  foreground: c.source == .itunes ? Theme.ink : Theme.cream,
                                  font: .ui(10, .heavy), hPad: 7, vPad: 2)
                         if let d = c.duration, d > 0 {
@@ -290,7 +297,7 @@ struct OnlineSearchView: View {
     // MARK: 动作
 
     private var allEmpty: Bool {
-        Self.sources.allSatisfy { source in
+        sources.allSatisfy { source in
             if case .done(let list) = states[source] { return list.isEmpty }
             return false
         }
@@ -306,15 +313,15 @@ struct OnlineSearchView: View {
         searchID += 1
         let id = searchID
         expanded = nil
-        for source in Self.sources { states[source] = .loading }
+        for source in sources { states[source] = .loading }
         // 几个来源同时查，哪个先回来先显示；一个失败不影响其他
-        for source in Self.sources {
+        for source in sources {
             Task {
                 let result: SourceResult
                 switch source {
                 case .lrclib: result = await OnlineSearch.lrclib(q)
+                case .custom(let custom): result = await OnlineSearch.custom(custom, query: q, track: track)
                 case .kugou: result = await OnlineSearch.kugou(q)
-                case .qq: result = await OnlineSearch.qq(q)
                 case .netease: result = await OnlineSearch.netease(q)
                 case .itunes: result = await OnlineSearch.itunes(q)
                 }
@@ -391,8 +398,8 @@ struct OnlineSearchView: View {
     private func sourceColor(_ source: OnlineCandidate.Source) -> Color {
         switch source {
         case .lrclib: return Theme.sage
+        case .custom: return Theme.teal
         case .kugou: return Theme.slate
-        case .qq: return Theme.teal
         case .netease: return Theme.terra
         case .itunes: return Theme.mustard
         }

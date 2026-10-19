@@ -29,8 +29,9 @@ enum AppSettings {
     }
 }
 
-/// 联网获取封面（iTunes 搜索接口，找不到再用酷狗）和歌词（酷狗），结果缓存在本地，下次直接读取。
-/// 酷狗用的是客户端内部接口，不是公开 API，任何失败都直接跳过。
+/// 联网获取封面（iTunes 搜索接口，找不到再用酷狗、网易云）和歌词（LRCLIB，再加上用户自己添加的歌词源），
+/// 结果缓存在本地，下次直接读取。酷狗、网易云用的是网页 / 客户端内部接口，不是公开 API，任何失败都直接跳过。
+/// （以前还从酷狗、QQ 音乐、网易云下载歌词，因为版权问题去掉了；之前下载好的歌词缓存照旧能用）
 enum OnlineMedia {
     // MARK: 缓存
 
@@ -153,20 +154,9 @@ enum OnlineMedia {
         return URLSession(configuration: config)
     }()
 
-    /// referer：QQ 音乐的接口要带上 y.qq.com 的来源页，不然不给结果
+    /// referer：网易云的接口要带上 music.163.com 的来源页
     static func getData(_ url: URL, referer: String? = nil) async throws -> Data {
         var request = URLRequest(url: url)
-        if let referer { request.setValue(referer, forHTTPHeaderField: "Referer") }
-        let (data, response) = try await session.data(for: request)
-        guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
-        return data
-    }
-
-    static func postJSON(_ url: URL, body: Data, referer: String? = nil) async throws -> Data {
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.httpBody = body
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if let referer { request.setValue(referer, forHTTPHeaderField: "Referer") }
         let (data, response) = try await session.data(for: request)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
@@ -248,11 +238,16 @@ enum OnlineMedia {
     // MARK: 歌词
 
     static func fetchLyrics(for track: Track) async -> String? {
-        // 先 LRCLIB（只认对得上、带时间轴的），再酷狗，找不到再 QQ 音乐，再网易云
+        // 先 LRCLIB（只认对得上、带时间轴的），找不到再按顺序试用户自己添加的歌词源（也只要带时间轴的）
         var result = await lrclibLyrics(track)
-        if result == nil { result = await kugouLyrics(track) }
-        if result == nil { result = await qqLyrics(track) }
-        if result == nil { result = await neteaseLyrics(track) }
+        if result == nil {
+            for source in CustomLyricSources.enabled {
+                if let text = await CustomLyricSources.lyrics(for: track, from: source) {
+                    result = text
+                    break
+                }
+            }
+        }
 
         if let result {
             try? result.write(to: lyricsFile(track), atomically: true, encoding: .utf8)
@@ -297,7 +292,7 @@ enum OnlineMedia {
     }
 
     /// 自动找歌词：LRCLIB 中文歌收得少，所以要求很严——歌名、歌手对得上，时长差 3 秒以内，而且带时间轴；
-    /// 不然就不要，交给后面的酷狗 / QQ / 网易云
+    /// 不然就不要，交给后面用户自己添加的歌词源
     private static func lrclibLyrics(_ track: Track) async -> String? {
         guard track.hasKnownArtist, track.duration > 0, !normalize(track.title).isEmpty else { return nil }
         // 先精确查（歌名 + 歌手 + 专辑 + 时长）
@@ -330,111 +325,7 @@ enum OnlineMedia {
         return !artist.isEmpty && (artist.contains(wantArtist) || wantArtist.contains(artist))
     }
 
-    // MARK: QQ 音乐（和酷狗一样是客户端内部接口，任何失败都直接跳过）
-
-    static let qqReferer = "https://y.qq.com"
-
-    /// 搜索结果里的一首歌（字段名沿用旧接口的，别处都按这个用）
-    struct QQSearch {
-        struct Singer { let name: String? }
-        struct Item {
-            let songmid: String?
-            let songname: String?
-            let singer: [Singer]?
-            let albumname: String?
-            let albummid: String?
-            let interval: Int?   // 秒
-        }
-    }
-
-    /// 新搜索接口（u.y.qq.com/cgi-bin/musicu.fcg）返回的格式
-    private struct QQMusicuResponse: Decodable {
-        struct Named: Decodable { let mid: String?; let name: String? }
-        struct Song: Decodable {
-            let mid: String?
-            let name: String?
-            let singer: [Named]?
-            let album: Named?
-            let interval: Int?
-        }
-        struct SongList: Decodable { let list: [Song] }
-        struct Body: Decodable { let song: SongList }
-        struct DataField: Decodable { let body: Body }
-        struct Req: Decodable { let code: Int; let data: DataField? }
-        let req: Req
-    }
-
-    /// QQ 音乐歌曲搜索。旧接口 c.y.qq.com/soso/fcgi-bin/client_search_cp 在 2026-10 停用了（一直返回 500），
-    /// 改用 QQ 音乐网页版自己用的 musicu.fcg。偶尔连不上时隔一会儿再试一次。
-    static func qqSearch(_ keyword: String, count: Int) async -> [QQSearch.Item]? {
-        let body: [String: Any] = [
-            "comm": ["ct": "19", "cv": "1859", "uin": "0"],
-            "req": [
-                "module": "music.search.SearchCgiService",
-                "method": "DoSearchForQQMusicDesktop",
-                "param": ["query": keyword, "num_per_page": count, "page_num": 1, "search_type": 0, "grp": 1],
-            ],
-        ]
-        guard let url = URL(string: "https://u.y.qq.com/cgi-bin/musicu.fcg"),
-              let json = try? JSONSerialization.data(withJSONObject: body) else { return nil }
-        for attempt in 0..<2 {
-            if attempt > 0 { try? await Task.sleep(for: .milliseconds(600)) }
-            guard let data = try? await postJSON(url, body: json, referer: qqReferer),
-                  let response = try? JSONDecoder().decode(QQMusicuResponse.self, from: data),
-                  response.req.code == 0, let songs = response.req.data?.body.song.list else { continue }
-            return songs.map {
-                QQSearch.Item(songmid: $0.mid, songname: $0.name,
-                              singer: $0.singer?.map { QQSearch.Singer(name: $0.name) },
-                              albumname: $0.album?.name, albummid: $0.album?.mid, interval: $0.interval)
-            }
-        }
-        return nil
-    }
-
-    /// 按 songmid 下载 QQ 音乐的 LRC 歌词
-    static func qqDownloadLyrics(mid: String) async -> String? {
-        var comps = URLComponents(string: "https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg")!
-        comps.queryItems = [
-            URLQueryItem(name: "songmid", value: mid),
-            URLQueryItem(name: "format", value: "json"),
-            URLQueryItem(name: "nobase64", value: "1"),
-        ]
-        struct Response: Decodable { let lyric: String? }
-        guard let url = comps.url, let data = try? await getData(url, referer: qqReferer),
-              let response = try? JSONDecoder().decode(Response.self, from: data),
-              let text = response.lyric else { return nil }
-        return nonEmpty(decodeHTMLEntities(text))
-    }
-
-    /// QQ 专辑封面
-    static func qqCoverURL(albumMid: String?) -> URL? {
-        guard let mid = albumMid, !mid.isEmpty else { return nil }
-        return URL(string: "https://y.gtimg.cn/music/photo_new/T002R500x500M000\(mid).jpg")
-    }
-
-    /// 自动找歌词：只用歌名搜，再按歌名、歌手、时长挑最像的一首
-    private static func qqLyrics(_ track: Track) async -> String? {
-        guard let items = await qqSearch(track.title, count: 15) else { return nil }
-        let wantTitle = normalize(track.title)
-        let wantArtist = track.hasKnownArtist ? normalize(track.artist) : ""
-        guard !wantTitle.isEmpty else { return nil }
-        func score(_ item: QQSearch.Item) -> Int? {
-            let title = normalize(item.songname ?? "")
-            guard !title.isEmpty, title == wantTitle || title.contains(wantTitle) || wantTitle.contains(title) else { return nil }
-            var s = title == wantTitle ? 3 : 1
-            if !wantArtist.isEmpty {
-                let artists = (item.singer ?? []).map { normalize($0.name ?? "") }
-                if artists.contains(where: { !$0.isEmpty && ($0.contains(wantArtist) || wantArtist.contains($0)) }) { s += 3 }
-            }
-            if let d = item.interval, track.duration > 0, abs(Double(d) - track.duration) <= 3 { s += 2 }
-            return s
-        }
-        let best = items.compactMap { item in score(item).map { (item, $0) } }.max { $0.1 < $1.1 }
-        guard let mid = best?.0.songmid else { return nil }
-        return await qqDownloadLyrics(mid: mid)
-    }
-
-    // MARK: 网易云音乐（网页版自己用的接口，任何失败都直接跳过）
+    // MARK: 网易云音乐（网页版自己用的接口，只用来找封面，任何失败都直接跳过）
 
     static let neteaseReferer = "https://music.163.com"
 
@@ -483,27 +374,6 @@ enum OnlineMedia {
         }
     }
 
-    /// 按歌曲 id 下载网易云的 LRC 歌词（纯音乐、没收录歌词的返回 nil）
-    static func neteaseDownloadLyrics(id: Int) async -> String? {
-        var comps = URLComponents(string: "https://music.163.com/api/song/lyric")!
-        comps.queryItems = [
-            URLQueryItem(name: "id", value: String(id)),
-            URLQueryItem(name: "lv", value: "1"),
-            URLQueryItem(name: "tv", value: "-1"),
-        ]
-        struct Response: Decodable {
-            struct Lrc: Decodable { let lyric: String? }
-            let lrc: Lrc?
-            let nolyric: Bool?
-            let uncollected: Bool?
-        }
-        guard let url = comps.url, let data = try? await getData(url, referer: neteaseReferer),
-              let response = try? JSONDecoder().decode(Response.self, from: data),
-              response.nolyric != true, response.uncollected != true,
-              let text = response.lrc?.lyric else { return nil }
-        return nonEmpty(text)
-    }
-
     /// 网易云专辑封面（改成 https、500 尺寸）
     static func neteaseCoverURL(_ pic: String?) -> URL? {
         guard let pic, !pic.isEmpty else { return nil }
@@ -538,38 +408,11 @@ enum OnlineMedia {
         return best?.song
     }
 
-    private static func neteaseLyrics(_ track: Track) async -> String? {
-        guard let song = await neteaseBest(track, needsCover: false) else { return nil }
-        return await neteaseDownloadLyrics(id: song.id)
-    }
-
     private static func neteaseCover(_ track: Track) async -> String? {
         await neteaseBest(track, needsCover: true).flatMap { neteaseCoverURL($0.picURL)?.absoluteString }
     }
 
-    /// QQ 的歌词里偶尔有 &#58; &apos; 这类网页转义
-    private static func decodeHTMLEntities(_ s: String) -> String {
-        guard s.contains("&") else { return s }
-        var out = s
-        for (k, v) in [("&apos;", "'"), ("&quot;", "\""), ("&lt;", "<"), ("&gt;", ">"), ("&nbsp;", " ")] {
-            out = out.replacingOccurrences(of: k, with: v)
-        }
-        let regex = try! NSRegularExpression(pattern: "&#(\\d+);")
-        let ns = out as NSString
-        var result = ""
-        var last = 0
-        for m in regex.matches(in: out, range: NSRange(location: 0, length: ns.length)) {
-            result += ns.substring(with: NSRange(location: last, length: m.range.location - last))
-            if let code = UInt32(ns.substring(with: m.range(at: 1))), let scalar = Unicode.Scalar(code) {
-                result.append(Character(scalar))
-            }
-            last = m.range.location + m.range.length
-        }
-        result += ns.substring(from: last)
-        return result.replacingOccurrences(of: "&amp;", with: "&")
-    }
-
-    // MARK: 酷狗
+    // MARK: 酷狗（只用来找封面）
 
     private struct KugouSongSearch: Decodable {
         struct Item: Decodable {
@@ -618,82 +461,6 @@ enum OnlineMedia {
         return match?.Image?
             .replacingOccurrences(of: "{size}", with: "480")
             .replacingOccurrences(of: "http://", with: "https://")
-    }
-
-    private struct KugouLyricsSearch: Decodable {
-        struct Candidate: Decodable {
-            let id: String?
-            let accesskey: String?
-            let song: String?
-            let duration: Int?   // 毫秒
-        }
-        let candidates: [Candidate]?
-    }
-
-    private struct KugouLyricsDownload: Decodable {
-        let content: String?   // base64 编码的 LRC
-    }
-
-    private static func kugouLyrics(_ track: Track) async -> String? {
-        // 先用「歌手 - 歌名」搜（2026-10 起只用歌名搜，热门歌常常一条都不返回），搜不到再只用歌名
-        var keywords = [track.title]
-        if track.hasKnownArtist { keywords.insert("\(track.artist) - \(track.title)", at: 0) }
-        for keyword in keywords {
-            if let text = await kugouLyrics(track, keyword: keyword) { return text }
-        }
-        return nil
-    }
-
-    private static func kugouLyrics(_ track: Track, keyword: String) async -> String? {
-        var comps = URLComponents(string: "https://lyrics.kugou.com/search")!
-        var query = [
-            URLQueryItem(name: "ver", value: "1"),
-            URLQueryItem(name: "man", value: "yes"),
-            URLQueryItem(name: "client", value: "pc"),
-            URLQueryItem(name: "keyword", value: keyword),
-        ]
-        if track.duration > 0 {
-            query.append(URLQueryItem(name: "duration", value: String(Int(track.duration * 1000))))
-        }
-        comps.queryItems = query
-        guard let url = comps.url,
-              let data = try? await getData(url),
-              let response = try? JSONDecoder().decode(KugouLyricsSearch.self, from: data) else { return nil }
-
-        let wantTitle = normalize(track.title)
-        guard !wantTitle.isEmpty else { return nil }
-        let candidates = (response.candidates ?? []).filter {
-            let t = normalize($0.song ?? "")
-            return $0.id != nil && $0.accesskey != nil
-                && !t.isEmpty && (t == wantTitle || t.contains(wantTitle) || wantTitle.contains(t))
-        }
-        func closeDuration(_ c: KugouLyricsSearch.Candidate) -> Bool {
-            guard let d = c.duration, track.duration > 0 else { return true }
-            return abs(Double(d) / 1000 - track.duration) <= 3
-        }
-        // 酷狗已按匹配度排序，优先取时长接近的
-        guard let best = candidates.first(where: closeDuration) ?? candidates.first,
-              let id = best.id, let key = best.accesskey else { return nil }
-        return await kugouDownloadLyrics(id: id, accessKey: key)
-    }
-
-    /// 按酷狗歌词的 id 和 accesskey 下载 LRC
-    static func kugouDownloadLyrics(id: String, accessKey key: String) async -> String? {
-        var dl = URLComponents(string: "https://lyrics.kugou.com/download")!
-        dl.queryItems = [
-            URLQueryItem(name: "ver", value: "1"),
-            URLQueryItem(name: "client", value: "pc"),
-            URLQueryItem(name: "id", value: id),
-            URLQueryItem(name: "accesskey", value: key),
-            URLQueryItem(name: "fmt", value: "lrc"),
-            URLQueryItem(name: "charset", value: "utf8"),
-        ]
-        guard let dlURL = dl.url,
-              let dlData = try? await getData(dlURL),
-              let item = try? JSONDecoder().decode(KugouLyricsDownload.self, from: dlData),
-              let encoded = item.content, let raw = Data(base64Encoded: encoded),
-              let text = String(data: raw, encoding: .utf8) else { return nil }
-        return nonEmpty(text.replacingOccurrences(of: "\u{FEFF}", with: ""))
     }
 
     // MARK: 工具
