@@ -32,7 +32,7 @@ enum ScreenColorSampler {
             NSApp.activate(ignoringOtherApps: true)
             let alert = NSAlert()
             alert.messageText = "需要「屏幕录制」权限"
-            alert.informativeText = "打开「系统设置 → 隐私与安全性 → 屏幕与系统录音」，把 Groove 打开，然后退出 Groove 再打开一次。\n\n只用来看歌词胶囊和贴边小球后面那一小块是深色还是浅色，不会录下或保存任何画面。没打开之前还是按原来的办法判断。"
+            alert.informativeText = "Groove屏幕录制授权仅用作识别悬浮球底色，不涉及其余隐私摄取"
             alert.addButton(withTitle: "打开系统设置")
             alert.addButton(withTitle: "好")
             if alert.runModal() == .alertFirstButtonReturn,
