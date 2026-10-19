@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// 设置里的「自定义歌词源…」：自己添加歌词网址。默认一个都没有；改了马上保存
+/// 「联网搜索」面板里的「自定义歌词源」：自己添加歌词网址。默认一个都没有；改了马上保存
 struct CustomLyricSourcesView: View {
-    @Environment(PlayerController.self) private var player
+    /// 「测试」用这首歌（正在联网搜索的那首）
+    let track: Track
     @Environment(\.dismiss) private var dismiss
 
     @State private var sources: [CustomLyricSource] = CustomLyricSources.load()
@@ -52,7 +53,7 @@ struct CustomLyricSourcesView: View {
 
     private var intro: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("内置的歌词来源只有 LRCLIB。找不到时，会按下面的顺序试你添加的歌词源（只用带时间轴的歌词），「联网搜索」里也会多出对应的一栏。")
+            Text("内置的歌词来源只有 LRCLIB。自动联网找不到时，会按下面的顺序试你添加的歌词源（只用带时间轴的歌词）；「联网搜索」里每个歌词源也会多出一栏。")
             Text("网址里可以写 {title} 歌名、{artist} 歌手、{album} 专辑、{duration} 时长（秒），会自动换成这首歌的信息。网址返回 LRC 歌词文本，或者 LRCLIB 格式的 JSON（syncedLyrics / plainLyrics）都可以。")
             Text("你添加的歌词源由你自己负责，请只使用你有权使用的来源。")
                 .foregroundStyle(Theme.mustard)
@@ -117,7 +118,7 @@ struct CustomLyricSourcesView: View {
         .help(help)
     }
 
-    /// 用正在放（或选中）的这首歌试一下这个源
+    /// 用正在联网搜索的这首歌试一下这个源
     private func testButton(_ source: CustomLyricSource) -> some View {
         Button {
             Task { await test(source) }
@@ -137,7 +138,7 @@ struct CustomLyricSourcesView: View {
         }
         .buttonStyle(.plain)
         .disabled(testing.contains(source.id))
-        .help("用当前这首歌试一下")
+        .help("用「\(track.title)」试一下")
     }
 
     private var addButton: some View {
@@ -163,10 +164,6 @@ struct CustomLyricSourcesView: View {
     }
 
     private func test(_ source: CustomLyricSource) async {
-        guard let track = player.current else {
-            testResults[source.id] = "先放一首歌（或在列表里选中一首）再测试"
-            return
-        }
         let artist = track.hasKnownArtist ? track.artist : ""
         let album = track.hasKnownAlbum ? track.album : ""
         guard CustomLyricSources.url(source.template, title: track.title, artist: artist, album: album,

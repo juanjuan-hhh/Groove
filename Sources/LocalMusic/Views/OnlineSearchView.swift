@@ -36,6 +36,7 @@ struct OnlineSearchView: View {
     @State private var usedCover: UUID?
     @State private var usedLyrics: UUID?
     @State private var message: String?
+    @State private var editingSources = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -78,6 +79,10 @@ struct OnlineSearchView: View {
         .background(Theme.bg)
         .foregroundStyle(Theme.text)
         .task { search(initial: true) }
+        .sheet(isPresented: $editingSources, onDismiss: reloadSources) {
+            CustomLyricSourcesView(track: track)
+                .modifier(ThemedAppearance())
+        }
     }
 
     // MARK: 顶部
@@ -91,6 +96,20 @@ struct OnlineSearchView: View {
                     .font(.ui(12)).foregroundStyle(Theme.text2).lineLimit(1)
             }
             Spacer()
+            // 自己添加歌词网址；关掉编辑卡片后按新的列表重新搜一次
+            Button { editingSources = true } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "link.badge.plus").font(.system(size: 11, weight: .bold))
+                    Text("自定义歌词源").font(.ui(12, .bold))
+                }
+                .foregroundStyle(Theme.text)
+                .padding(.horizontal, 11)
+                .padding(.vertical, 6)
+                .background(Capsule().fill(Theme.surface))
+                .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .help("添加、管理自己的歌词网址")
             Button { dismiss() } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 13, weight: .bold))
@@ -332,6 +351,16 @@ struct OnlineSearchView: View {
                 }
             }
         }
+    }
+
+    /// 自定义歌词源改过了：换成新的来源列表，按搜索框里的字重新搜
+    private func reloadSources() {
+        let updated: [OnlineCandidate.Source] =
+            [.lrclib] + CustomLyricSources.enabled.map { .custom($0) } + [.kugou, .netease, .itunes]
+        guard updated != sources else { return }
+        if let filter, !updated.contains(filter) { self.filter = nil }
+        sources = updated
+        search(initial: false)
     }
 
     private func toggle(_ c: OnlineCandidate) {
