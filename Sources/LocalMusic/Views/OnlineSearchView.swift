@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 「联网搜索」面板：查 LRCLIB 和用户自己添加的歌词源，列出所有结果，自己选用哪份歌词
+/// 「联网搜索」面板：同时查 酷狗 / QQ 音乐 / iTunes（iTunes 只有封面），列出所有结果，自己选用哪个封面、哪份歌词
 struct OnlineSearchView: View {
     let track: Track
 
@@ -19,9 +19,7 @@ struct OnlineSearchView: View {
         case empty
     }
 
-    /// LRCLIB + 打开着的自定义歌词源（加了才有对应的标签）
-    @State private var sources: [OnlineCandidate.Source] =
-        [.lrclib] + CustomLyricSources.enabled.map { .custom($0) }
+    private static let sources: [OnlineCandidate.Source] = [.lrclib, .kugou, .qq, .netease, .itunes]
 
     /// 点了某个来源的胶囊：只显示这个来源的结果（再点一下显示全部）
     @State private var filter: OnlineCandidate.Source?
@@ -33,9 +31,9 @@ struct OnlineSearchView: View {
     @State private var previews: [UUID: Preview] = [:]
     @State private var lyricsCache: [UUID: String] = [:]
     @State private var busy: Set<String> = []
+    @State private var usedCover: UUID?
     @State private var usedLyrics: UUID?
     @State private var message: String?
-    @State private var editingSources = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -44,7 +42,7 @@ struct OnlineSearchView: View {
             sourceBar
             ScrollView {
                 LazyVStack(spacing: 2) {
-                    ForEach(sources, id: \.self) { source in
+                    ForEach(Self.sources, id: \.self) { source in
                         if filter == nil || filter == source, case .done(let list) = states[source] {
                             ForEach(list) { row($0) }
                         }
@@ -78,10 +76,6 @@ struct OnlineSearchView: View {
         .background(Theme.bg)
         .foregroundStyle(Theme.text)
         .task { search(initial: true) }
-        .sheet(isPresented: $editingSources, onDismiss: reloadSources) {
-            CustomLyricSourcesView(track: track)
-                .modifier(ThemedAppearance())
-        }
     }
 
     // MARK: 顶部
@@ -95,20 +89,6 @@ struct OnlineSearchView: View {
                     .font(.ui(12)).foregroundStyle(Theme.text2).lineLimit(1)
             }
             Spacer()
-            // 自己添加歌词网址；关掉编辑卡片后按新的列表重新搜一次
-            Button { editingSources = true } label: {
-                HStack(spacing: 5) {
-                    Image(systemName: "link.badge.plus").font(.system(size: 11, weight: .bold))
-                    Text("自定义歌词源").font(.ui(12, .bold))
-                }
-                .foregroundStyle(Theme.text)
-                .padding(.horizontal, 11)
-                .padding(.vertical, 6)
-                .background(Capsule().fill(Theme.surface))
-                .contentShape(Capsule())
-            }
-            .buttonStyle(.plain)
-            .help("添加、管理自己的歌词网址")
             Button { dismiss() } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 13, weight: .bold))
@@ -126,13 +106,8 @@ struct OnlineSearchView: View {
 
     /// 每个来源的状态：结果数 / 加载中 / 失败。点一下只看这个来源，再点一下看全部
     private var sourceBar: some View {
-        // 自定义歌词源多了一行放不下，可以左右滑
-        ScrollView(.horizontal, showsIndicators: false) { sourceChips }
-    }
-
-    private var sourceChips: some View {
         HStack(spacing: 8) {
-            ForEach(sources, id: \.self) { source in
+            ForEach(Self.sources, id: \.self) { source in
                 let state = states[source] ?? .loading
                 let selected = filter == source
                 Button {
@@ -140,7 +115,7 @@ struct OnlineSearchView: View {
                 } label: {
                     HStack(spacing: 6) {
                         Circle().fill(sourceColor(source)).frame(width: 8, height: 8)
-                        Text(source.label).font(.ui(12, .bold))
+                        Text(source == .itunes ? "iTunes 封面" : source.rawValue).font(.ui(12, .bold))
                             .foregroundStyle(selected ? Theme.onText : Theme.text)
                         switch state {
                         case .loading:
@@ -159,7 +134,7 @@ struct OnlineSearchView: View {
                     .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
-                .help(selected ? "显示全部来源" : "只看\(source.label)的结果")
+                .help(selected ? "显示全部来源" : "只看\(source.rawValue)的结果")
             }
             Spacer()
         }
@@ -179,8 +154,8 @@ struct OnlineSearchView: View {
                     Text([c.artist, c.album ?? ""].filter { !$0.isEmpty }.joined(separator: " · "))
                         .font(.ui(12)).foregroundStyle(Theme.text2).lineLimit(1)
                     HStack(spacing: 6) {
-                        ChipText(text: c.source.label, color: sourceColor(c.source),
-                                 foreground: Theme.cream,
+                        ChipText(text: c.source.rawValue, color: sourceColor(c.source),
+                                 foreground: c.source == .itunes ? Theme.ink : Theme.cream,
                                  font: .ui(10, .heavy), hPad: 7, vPad: 2)
                         if let d = c.duration, d > 0 {
                             let close = track.duration > 0 && abs(d - track.duration) <= 3
@@ -194,6 +169,10 @@ struct OnlineSearchView: View {
                     }
                 }
                 Spacer(minLength: 8)
+                if c.coverURL != nil {
+                    actionButton(c, kind: "cover", label: usedCover == c.id ? "已用封面" : "用这个封面",
+                                 icon: "photo", done: usedCover == c.id) { await useCover(c) }
+                }
                 if c.lyrics != nil {
                     actionButton(c, kind: "lyrics", label: usedLyrics == c.id ? "已用歌词" : "用这个歌词",
                                  icon: "text.quote", done: usedLyrics == c.id) { await useLyrics(c) }
@@ -214,9 +193,17 @@ struct OnlineSearchView: View {
     private func thumbnail(_ c: OnlineCandidate) -> some View {
         ZStack {
             Theme.surface
-            Image(systemName: "text.quote")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(Theme.text3)
+            if let url = c.coverURL {
+                AsyncImage(url: url) { image in
+                    image.resizable().scaledToFill()
+                } placeholder: {
+                    ProgressView().controlSize(.mini)
+                }
+            } else {
+                Image(systemName: c.lyrics != nil ? "text.quote" : "music.note")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(Theme.text3)
+            }
         }
         .frame(width: 52, height: 52)
         .clipShape(RoundedRectangle(cornerRadius: Theme.artRadius, style: .continuous))
@@ -260,7 +247,7 @@ struct OnlineSearchView: View {
             }
             .padding(.leading, 64)
         case .empty:
-            Text("这个结果没有歌词")
+            Text(c.lyrics == nil ? "这个结果只有封面，没有歌词" : "这个结果没有歌词")
                 .font(.ui(12)).foregroundStyle(Theme.text2)
                 .padding(.leading, 64)
         case .lines(let lines, let synced):
@@ -303,7 +290,7 @@ struct OnlineSearchView: View {
     // MARK: 动作
 
     private var allEmpty: Bool {
-        sources.allSatisfy { source in
+        Self.sources.allSatisfy { source in
             if case .done(let list) = states[source] { return list.isEmpty }
             return false
         }
@@ -319,14 +306,17 @@ struct OnlineSearchView: View {
         searchID += 1
         let id = searchID
         expanded = nil
-        for source in sources { states[source] = .loading }
+        for source in Self.sources { states[source] = .loading }
         // 几个来源同时查，哪个先回来先显示；一个失败不影响其他
-        for source in sources {
+        for source in Self.sources {
             Task {
                 let result: SourceResult
                 switch source {
                 case .lrclib: result = await OnlineSearch.lrclib(q)
-                case .custom(let custom): result = await OnlineSearch.custom(custom, query: q, track: track)
+                case .kugou: result = await OnlineSearch.kugou(q)
+                case .qq: result = await OnlineSearch.qq(q)
+                case .netease: result = await OnlineSearch.netease(q)
+                case .itunes: result = await OnlineSearch.itunes(q)
                 }
                 guard id == searchID else { return }
                 switch result {
@@ -335,16 +325,6 @@ struct OnlineSearchView: View {
                 }
             }
         }
-    }
-
-    /// 自定义歌词源改过了：换成新的来源列表，按搜索框里的字重新搜
-    private func reloadSources() {
-        let updated: [OnlineCandidate.Source] =
-            [.lrclib] + CustomLyricSources.enabled.map { .custom($0) }
-        guard updated != sources else { return }
-        if let filter, !updated.contains(filter) { self.filter = nil }
-        sources = updated
-        search(initial: false)
     }
 
     private func toggle(_ c: OnlineCandidate) {
@@ -390,6 +370,16 @@ struct OnlineSearchView: View {
         flash("已换成这份歌词")
     }
 
+    private func useCover(_ c: OnlineCandidate) async {
+        guard let url = c.coverURL, let data = await OnlineSearch.image(at: url) else {
+            flash("封面下载失败")
+            return
+        }
+        await player.applyManualCover(data, for: track)
+        usedCover = c.id
+        flash("已换成这张封面")
+    }
+
     private func flash(_ text: String) {
         message = text
         Task {
@@ -401,7 +391,10 @@ struct OnlineSearchView: View {
     private func sourceColor(_ source: OnlineCandidate.Source) -> Color {
         switch source {
         case .lrclib: return Theme.sage
-        case .custom: return Theme.teal
+        case .kugou: return Theme.slate
+        case .qq: return Theme.teal
+        case .netease: return Theme.terra
+        case .itunes: return Theme.mustard
         }
     }
 }

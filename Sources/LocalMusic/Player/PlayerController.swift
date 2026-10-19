@@ -564,10 +564,12 @@ final class PlayerController {
             self.nowPlayingArtwork = art
             self.updateNowPlayingInfo()
 
-            // 用户删过的不再自动下载；封面不再联网找（版权问题），只用文件里的和自己选的
+            // 用户删过的不再自动下载
             let wantLyrics = local == nil && !OnlineMedia.isLyricsBlocked(track)
-            if AppSettings.autoFetchOnline && wantLyrics {
-                await self.fetchOnline(for: track)
+            let wantCover = art == nil && !OnlineMedia.isCoverBlocked(track)
+            if AppSettings.autoFetchOnline && (wantLyrics || wantCover) {
+                await self.fetchOnline(for: track, lyrics: wantLyrics, cover: wantCover)
+                if local == nil && !wantLyrics { self.lyricsState = .notFound }
             } else if local == nil {
                 self.lyricsState = .notFound
             }
@@ -576,7 +578,7 @@ final class PlayerController {
 
     // MARK: 联网搜索面板
 
-    /// 打开「联网搜索」面板，列出各个歌词来源的结果让用户自己选
+    /// 打开「联网搜索」面板，列出各个来源的结果让用户自己选
     func openOnlineSearch(for track: Track? = nil) {
         searchTarget = track ?? current
     }
@@ -647,18 +649,29 @@ final class PlayerController {
         updateNowPlayingInfo()
     }
 
-    private func fetchOnline(for track: Track) async {
+    private func fetchOnline(for track: Track, lyrics wantLyrics: Bool, cover wantCover: Bool) async {
         isFetchingOnline = true
         defer { isFetchingOnline = false }
 
-        if current?.id == track.id, lyrics.isEmpty { lyricsState = .loading }
-        let lyricText = await OnlineMedia.fetchLyrics(for: track)
+        if wantLyrics, current?.id == track.id, lyrics.isEmpty { lyricsState = .loading }
+
+        var lyricText: String?
+        var coverData: Data?
+        if wantLyrics { lyricText = await OnlineMedia.fetchLyrics(for: track) }
+        if wantCover { coverData = await OnlineMedia.fetchCover(for: track) }
+        if coverData != nil { ArtworkProvider.shared.invalidate(track) }
 
         guard current?.id == track.id else { return }
-        if let lyricText {
-            applyLyrics(lyricText, source: .online)
-        } else if lyrics.isEmpty {
-            lyricsState = .notFound
+        if wantLyrics {
+            if let lyricText {
+                applyLyrics(lyricText, source: .online)
+            } else if lyrics.isEmpty {
+                lyricsState = .notFound
+            }
+        }
+        if coverData != nil {
+            nowPlayingArtwork = await ArtworkProvider.shared.image(for: track, size: 400)
+            updateNowPlayingInfo()
         }
     }
 
