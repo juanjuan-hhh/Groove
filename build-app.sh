@@ -45,6 +45,10 @@ if pgrep -f "\.app/Contents/MacOS/LocalMusic" >/dev/null; then
     pgrep -f "\.app/Contents/MacOS/LocalMusic" >/dev/null || break
     sleep 0.25
   done
+  if pgrep -f "\.app/Contents/MacOS/LocalMusic" >/dev/null; then
+    WAS_RUNNING=0
+    echo "注意：正在运行的 Groove 没有退出（可能开着面板或弹窗），新版本装好后要手动退出 Groove 再打开才会生效。"
+  fi
 fi
 rm -rf "$INSTALLED"
 # 只删确实是这个 App 的旧版本（看 bundle id），不碰别的东西
