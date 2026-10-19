@@ -8,6 +8,9 @@ struct NotchIslandView: View {
     @Environment(PlayerController.self) private var player
     @AppStorage(FloatingBall.twoLinesKey) private var twoLines = false
     @AppStorage(FloatingBall.lyricCoverTintKey) private var coverTintOn = true
+    @AppStorage(FloatingLyricsMode.hideWhenPausedKey) private var hideWhenPaused = false
+    /// 开了「暂停时不显示歌词」又暂停着：不显示歌词，当成没有逐句歌词，显示歌名和歌手
+    private var lyricsHidden: Bool { hideWhenPaused && !player.isPlaying }
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -104,7 +107,7 @@ struct NotchIslandView: View {
 
     /// 有逐句歌词时：有字的歌词行，和当前句在里面的位置（前奏里是第一句，间奏里是前面最近的一句）
     private var lyricRows: ([String], Int)? {
-        guard player.current != nil, let i = player.floatingLyricIndex else { return nil }
+        guard player.current != nil, !lyricsHidden, let i = player.floatingLyricIndex else { return nil }
         let rows = player.lyrics.enumerated().compactMap { k, l -> (index: Int, text: String)? in
             let t = l.text.trimmingCharacters(in: .whitespaces)
             return t.isEmpty ? nil : (k, t)
@@ -147,7 +150,7 @@ struct NotchIslandView: View {
     /// 没有逐句歌词时是歌名 + 歌手；什么都没在放时显示「未在播放」
     private var lines: (String, String) {
         guard let track = player.current else { return ("未在播放", "") }
-        if let i = player.floatingLyricIndex {
+        if !lyricsHidden, let i = player.floatingLyricIndex {
             let rows = player.lyrics.enumerated().compactMap { k, l -> (index: Int, text: String)? in
                 let t = l.text.trimmingCharacters(in: .whitespaces)
                 return t.isEmpty ? nil : (k, t)

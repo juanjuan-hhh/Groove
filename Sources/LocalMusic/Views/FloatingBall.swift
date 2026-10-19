@@ -642,6 +642,10 @@ final class FloatingBall {
         menu.addItem(item("贴边时也显示歌词", checked: whenTucked, enabled: mode != .off) {
             UserDefaults.standard.set(!whenTucked, forKey: FloatingLyricsMode.whenTuckedKey)
         })
+        let hideWhenPaused = UserDefaults.standard.bool(forKey: FloatingLyricsMode.hideWhenPausedKey)
+        menu.addItem(item("暂停时不显示歌词", checked: hideWhenPaused, enabled: mode != .off) {
+            UserDefaults.standard.set(!hideWhenPaused, forKey: FloatingLyricsMode.hideWhenPausedKey)
+        })
         menu.addItem(item("始终置顶", checked: Self.onTop) {
             FloatingBall.shared.setOnTop(!FloatingBall.onTop)
         })
@@ -1639,6 +1643,8 @@ enum FloatingLyricsMode: String, CaseIterable, Identifiable {
     static let key = "floatingLyricsMode"
     /// 贴边藏起一半时也显示歌词条
     static let whenTuckedKey = "floatingLyricsWhenTucked"
+    /// 暂停时不显示歌词（球旁边的胶囊藏起来，刘海胶囊改显示歌名和歌手）
+    static let hideWhenPausedKey = "floatingLyricsHideWhenPaused"
     var label: String {
         switch self {
         case .off: return "关闭"
@@ -1653,6 +1659,7 @@ private struct FloatingLyricView: View {
     @Environment(PlayerController.self) private var player
     @AppStorage(FloatingLyricsMode.key) private var mode: FloatingLyricsMode = .always
     @AppStorage(FloatingLyricsMode.whenTuckedKey) private var showWhenTucked = false
+    @AppStorage(FloatingLyricsMode.hideWhenPausedKey) private var hideWhenPaused = false
     @AppStorage(FloatingBall.twoLinesKey) private var twoLinesSetting = false
     /// 歌词条缩在菜单栏里时只显示一行
     private var twoLines: Bool { twoLinesSetting && !FloatingBall.shared.lyricInMenuBar }
@@ -1674,7 +1681,7 @@ private struct FloatingLyricView: View {
         let line = preview ? "歌词胶囊大小预览" : currentLine
         let next = preview ? "下一句歌词" : nextLine
         let visible = ball.adjustingLyric || (!line.isEmpty && player.playedThisLaunch && (ball.tuckedEdge == nil || showWhenTucked)
-            && mode != .off && (mode == .always || ball.hovering))
+            && mode != .off && (mode == .always || ball.hovering) && (player.isPlaying || !hideWhenPaused))
         // 文字靠球那一边对齐
         let align: HorizontalAlignment = ball.lyricCentered ? .center : ball.lyricOnLeft ? .trailing : .leading
         let rowAlign: Alignment = ball.lyricCentered ? .center : ball.lyricOnLeft ? .trailing : .leading
