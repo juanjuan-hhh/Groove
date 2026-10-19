@@ -16,6 +16,8 @@ struct NotchIslandView: View {
         let notch = ball.islandNotchSize
         let open = ball.islandExpanded
         let (line, next) = lines
+        // 两行模式唱到最后一句（没有下一句了）时，胶囊缩回一行的高度
+        let twoLines = self.twoLines && !next.isEmpty
         let pad = 16 * s
         let textWidth = max(Self.width(of: line, size: 14 * s, weight: .semibold),
                             twoLines ? Self.width(of: next, size: 11 * s, weight: .medium) : 0)
@@ -25,7 +27,7 @@ struct NotchIslandView: View {
         // 不跟随：后面浅就用深色毛玻璃 + 浅色字，后面深就用浅色毛玻璃 + 深色字
         let tint = coverTintOn ? ball.lyricTint : nil
         let dark = tint != nil ? colorScheme == .dark : ball.islandBackdropLight
-        let height = ball.islandContentHeight
+        let height = twoLines ? ball.islandContentHeight : (36 * s).rounded()
         let radius = 18 * s
 
         // 歌词、毛玻璃都按最宽的胶囊排版、放在正中间，宽度一直不变；
@@ -46,7 +48,7 @@ struct NotchIslandView: View {
             if let (rows, pos) = lyricRows {
                 // 有逐句歌词：和悬浮球旁边的胶囊一样，前后几句排成一列，换句时整列往上推一行；
                 // 下一句一边上移一边放大变亮成为当前句，旧的当前句往上移出、变淡
-                scrollingRows(rows, pos: pos, scale: s, width: full - pad * 2, height: height, dark: dark)
+                scrollingRows(rows, pos: pos, scale: s, width: full - pad * 2, height: height, dark: dark, twoLines: twoLines)
                     .frame(width: full, height: height)
                     .clipped()
             } else {
@@ -113,7 +115,7 @@ struct NotchIslandView: View {
 
     /// 当前句前后几行，每行按「离当前句差几行」往上 / 往下摆，换句时一起动起来，看起来就是整列往上推
     private func scrollingRows(_ rows: [String], pos: Int, scale s: CGFloat, width: CGFloat, height: CGFloat,
-                               dark: Bool) -> some View {
+                               dark: Bool, twoLines: Bool) -> some View {
         let pitch = (twoLines ? 19 : 26) * s
         // 两行时当前句在上半、下一句在下半；一行时当前句在正中
         let base = twoLines ? -pitch / 2 : 0

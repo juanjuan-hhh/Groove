@@ -1678,18 +1678,20 @@ private struct FloatingLyricView: View {
         // 文字靠球那一边对齐
         let align: HorizontalAlignment = ball.lyricCentered ? .center : ball.lyricOnLeft ? .trailing : .leading
         let rowAlign: Alignment = ball.lyricCentered ? .center : ball.lyricOnLeft ? .trailing : .leading
+        // 两行模式唱到最后一句（没有下一句了）时，胶囊缩回一行的高度
+        let two = twoLines && !next.isEmpty
         // 量大小用：现在这句（+ 下一句），不显示，只撑开胶囊。宽度跟着这几句变，带动画。
         // 下一句按放大后的字号量：它马上要变成当前句，到时候胶囊不用再突然变宽
         ZStack(alignment: rowAlign) {
             Text(line).font(.ui(14 * s, .semibold)).lineLimit(1)
-            if twoLines && !next.isEmpty {
+            if two {
                 Text(next).font(.ui(14 * s, .semibold)).lineLimit(1)
             }
         }
-        .frame(height: twoLines ? 32 * s : nil)
+        .frame(height: two ? 32 * s : nil)
         .opacity(0)
         // 真正显示的：前后几句排成一列，换句时整列往上推一行；
-        // 下一句一边上移一边放大变亮成为当前这句，旧的当前句往上移出、变淡
+        // 下一句上移变成当前这句（小字淡出、大字淡入），旧的当前句往上移出、变淡
         .overlay(alignment: rowAlign) {
             if preview {
                 VStack(alignment: align, spacing: 2 * s) {
@@ -1697,11 +1699,11 @@ private struct FloatingLyricView: View {
                     if twoLines { Text(next).font(.ui(11 * s, .medium)).foregroundStyle(otherTextColor).lineLimit(1) }
                 }
             } else {
-                scrollingRows(scale: s, align: rowAlign)
+                scrollingRows(scale: s, align: rowAlign, twoLines: two)
             }
         }
         .padding(.horizontal, inBar ? 2 : 16 * s)
-        .padding(.vertical, twoLines ? 8 * s : 0)
+        .padding(.vertical, two ? 8 * s : 0)
         .frame(minHeight: inBar ? 0 : (36 * s).rounded())
         .clipped()
         .background {
@@ -1744,7 +1746,7 @@ private struct FloatingLyricView: View {
     }
 
     /// 当前句前后几行，每行按「离当前句差几行」往上 / 往下摆。换句时每行的位置一起动起来，看起来就是整列往上推
-    private func scrollingRows(scale s: CGFloat, align: Alignment) -> some View {
+    private func scrollingRows(scale s: CGFloat, align: Alignment, twoLines: Bool) -> some View {
         let rows = textRows
         let current = shownIndex ?? -1
         // 当前句在 rows 里的位置（当前是空行时取它前面最近的一句）
