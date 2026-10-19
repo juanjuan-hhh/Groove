@@ -43,6 +43,13 @@ struct NotchIslandView: View {
                 }
             }
             .frame(width: full, height: height)
+            if let (rows, pos) = lyricRows {
+                // 有逐句歌词：和悬浮球旁边的胶囊一样，前后几句排成一列，换句时整列往上推一行；
+                // 下一句一边上移一边放大变亮成为当前句，旧的当前句往上移出、变淡
+                scrollingRows(rows, pos: pos, scale: s, width: full - pad * 2, height: height, dark: dark)
+                    .frame(width: full, height: height)
+                    .clipped()
+            } else {
             VStack(spacing: 2 * s) {
                 // 换句时新的一句从下面滑上来、旧的往上滑走
                 ZStack {
@@ -69,6 +76,7 @@ struct NotchIslandView: View {
             }
             .frame(width: full, height: height)
             .clipped()
+            }
         }
         .frame(width: full, height: height)
         .mask { shape.frame(width: capsuleWidth, height: height) }
@@ -90,6 +98,47 @@ struct NotchIslandView: View {
         .task(id: player.current?.path) { await FloatingBall.shared.updateLyricTint(for: player.current) }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .help("双击打开主窗口，往下拖变回悬浮球")
+    }
+
+    /// 有逐句歌词时：有字的歌词行，和当前句在里面的位置（前奏里是第一句，间奏里是前面最近的一句）
+    private var lyricRows: ([String], Int)? {
+        guard player.current != nil, let i = player.floatingLyricIndex else { return nil }
+        let rows = player.lyrics.enumerated().compactMap { k, l -> (index: Int, text: String)? in
+            let t = l.text.trimmingCharacters(in: .whitespaces)
+            return t.isEmpty ? nil : (k, t)
+        }
+        guard let pos = rows.lastIndex(where: { $0.index <= i }) else { return nil }
+        return (rows.map(\.text), pos)
+    }
+
+    /// 当前句前后几行，每行按「离当前句差几行」往上 / 往下摆，换句时一起动起来，看起来就是整列往上推
+    private func scrollingRows(_ rows: [String], pos: Int, scale s: CGFloat, width: CGFloat, height: CGFloat,
+                               dark: Bool) -> some View {
+        let pitch = (twoLines ? 19 : 26) * s
+        // 两行时当前句在上半、下一句在下半；一行时当前句在正中
+        let base = twoLines ? -pitch / 2 : 0
+        let window = rows.indices.filter { $0 >= pos - 1 && $0 <= pos + 2 }
+        let small = 11.0 / 14.0
+        return ZStack {
+            ForEach(window, id: \.self) { k in
+                let isCurrent = k == pos
+                let shown = isCurrent || (twoLines && k == pos + 1)
+                Text(rows[k])
+                    .font(.ui(14 * s, .semibold))
+                    .foregroundStyle(isCurrent ? (dark ? Color.white : Color.black.opacity(0.85))
+                                               : (dark ? Color.white.opacity(0.55) : Color.black.opacity(0.5)))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    // 字号换不出平滑动画，用缩放：不是当前句时缩到 11/14；排版时按缩放前的宽度给，缩完正好是可用的宽度
+                    .frame(width: width / (isCurrent ? 1 : small))
+                    .scaleEffect(isCurrent ? 1 : small)
+                    .frame(width: width)
+                    .opacity(shown ? 1 : 0)
+                    .offset(y: base + CGFloat(k - pos) * pitch)
+            }
+        }
+        .frame(width: width, height: height)
+        .animation(.easeInOut(duration: 0.35), value: pos)
     }
 
     /// 显示的两行：有逐句歌词时是当前句（前奏里先显示第一句）+ 下一句，跳过空行；

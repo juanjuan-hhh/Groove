@@ -730,6 +730,53 @@ final class FloatingBall {
         }
         backdropObservers.append(NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
                                                                         object: nil, queue: .main, using: handler))
+        // 接上 / 拔掉显示器、改分辨率：重新摆一次球（见 screensChanged）
+        backdropObservers.append(NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
+                                                                        object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { FloatingBall.shared.scheduleScreensChanged() }
+        })
+    }
+
+    @ObservationIgnored private var screensChangedWork: DispatchWorkItem?
+
+    /// 显示器变化时通知会连着来好几次，等安静 0.5 秒再处理一次
+    private func scheduleScreensChanged() {
+        screensChangedWork?.cancel()
+        let work = DispatchWorkItem {
+            MainActor.assumeIsolated { FloatingBall.shared.screensChanged() }
+        }
+        screensChangedWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
+    }
+
+    /// 接上 / 拔掉显示器以后，系统可能把球挪到别处，原来贴的那条边也可能没了（旁边接了显示器），
+    /// 这时还按藏起一半的样子显示就会出现「屏幕中间半个球」。所以先变回完整的球，放回屏幕里，
+    /// 再按新的屏幕重新判断贴哪条边（开着自动贴边时贴过去，过一会儿再藏起来）。吸在刘海上时由刘海那边处理
+    func screensChanged() {
+        guard let panel, panel.isVisible, !inIsland, dragStart == nil else { return }
+        cancelTuck()
+        let full = Self.size
+        let old = tucked ? (shownFrame ?? panel.frame) : panel.frame
+        var frame = NSRect(x: old.midX - full / 2, y: old.midY - full / 2, width: full, height: full)
+        // 还在某块屏幕上就放在那块，不然放到主屏幕上
+        let screen = NSScreen.screens.max { a, b in
+            let ia = a.visibleFrame.intersection(frame), ib = b.visibleFrame.intersection(frame)
+            return (ia.isNull ? 0 : ia.width * ia.height) < (ib.isNull ? 0 : ib.width * ib.height)
+        }.flatMap { $0.visibleFrame.intersects(frame) ? $0 : nil } ?? NSScreen.main
+        frame = snapped(frame, on: screen)
+        tucked = false
+        backdropTimer?.invalidate()
+        backdropTimer = nil
+        panel.hasShadow = true
+        panel.setFrame(frame, display: true)
+        withAnimation(.easeInOut(duration: 0.2)) {
+            tuckedEdge = nil
+            ballSize = full
+        }
+        updateDock(for: frame)
+        positionLyricPanel(for: frame)
+        UserDefaults.standard.set(NSStringFromPoint(frame.origin), forKey: Self.originKey)
+        if !hovering { scheduleTuck(after: 0.8) }
     }
 
     /// Groove 自己的悬浮窗（截屏幕颜色时不算它们）
