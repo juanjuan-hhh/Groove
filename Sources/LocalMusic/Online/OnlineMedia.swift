@@ -29,9 +29,9 @@ enum AppSettings {
     }
 }
 
-/// 联网获取封面（iTunes 搜索接口，找不到再用酷狗、网易云）和歌词（LRCLIB，再加上用户自己添加的歌词源），
-/// 结果缓存在本地，下次直接读取。酷狗、网易云用的是网页 / 客户端内部接口，不是公开 API，任何失败都直接跳过。
-/// （以前还从酷狗、QQ 音乐、网易云下载歌词，因为版权问题去掉了；之前下载好的歌词缓存照旧能用）
+/// 联网获取封面（iTunes 搜索接口，找不到再用网易云）和歌词（LRCLIB，再加上用户自己添加的歌词源），
+/// 结果缓存在本地，下次直接读取。网易云用的是网页版自己的接口，不是公开 API，任何失败都直接跳过。
+/// （以前还从酷狗、QQ 音乐、网易云下载歌词、从酷狗找封面，因为版权问题去掉了；之前下载好的缓存照旧能用）
 enum OnlineMedia {
     // MARK: 缓存
 
@@ -182,7 +182,7 @@ enum OnlineMedia {
                 return data
             }
         }
-        for find in [searchKugouCover, neteaseCover] {
+        for find in [neteaseCover] {
             if let artURL = await find(track), let url = URL(string: artURL),
                let data = try? await getData(url), !data.isEmpty {
                 try? data.write(to: coverFile(track))
@@ -410,57 +410,6 @@ enum OnlineMedia {
 
     private static func neteaseCover(_ track: Track) async -> String? {
         await neteaseBest(track, needsCover: true).flatMap { neteaseCoverURL($0.picURL)?.absoluteString }
-    }
-
-    // MARK: 酷狗（只用来找封面）
-
-    private struct KugouSongSearch: Decodable {
-        struct Item: Decodable {
-            let SongName: String?
-            let SingerName: String?
-            let Image: String?
-        }
-        struct Payload: Decodable { let lists: [Item] }
-        let data: Payload
-    }
-
-    private static func searchKugouCover(_ track: Track) async -> String? {
-        let artist = track.hasKnownArtist ? track.artist : ""
-        var comps = URLComponents(string: "https://songsearch.kugou.com/song_search_v2")!
-        comps.queryItems = [
-            URLQueryItem(name: "keyword", value: "\(artist) \(track.title)".trimmingCharacters(in: .whitespaces)),
-            URLQueryItem(name: "page", value: "1"),
-            URLQueryItem(name: "pagesize", value: "15"),
-            URLQueryItem(name: "platform", value: "WebFilter"),
-        ]
-        guard let url = comps.url else { return nil }
-
-        // 这个接口连续请求时会限流，返回空列表，等 2 秒重试一次
-        var items: [KugouSongSearch.Item] = []
-        for attempt in 0..<2 {
-            if attempt > 0 { try? await Task.sleep(for: .seconds(2)) }
-            guard let data = try? await getData(url),
-                  let response = try? JSONDecoder().decode(KugouSongSearch.self, from: data) else { return nil }
-            items = response.data.lists
-            if !items.isEmpty { break }
-        }
-
-        let wantTitle = normalize(track.title)
-        let wantArtist = normalize(artist)
-        guard !wantTitle.isEmpty else { return nil }
-
-        let match = items.first { item in
-            guard let image = item.Image, !image.isEmpty else { return false }
-            let title = normalize(item.SongName ?? "")
-            guard !title.isEmpty, title == wantTitle || title.contains(wantTitle) || wantTitle.contains(title) else { return false }
-            if wantArtist.isEmpty { return true }
-            let itemArtist = normalize(item.SingerName ?? "")
-            return !itemArtist.isEmpty && (itemArtist.contains(wantArtist) || wantArtist.contains(itemArtist))
-        }
-        // 图片地址形如 http://imge.kugou.com/stdmusic/{size}/...，改成 https 和 480 尺寸
-        return match?.Image?
-            .replacingOccurrences(of: "{size}", with: "480")
-            .replacingOccurrences(of: "http://", with: "https://")
     }
 
     // MARK: 工具

@@ -17,7 +17,6 @@ struct CustomLyricSourcesView: View {
             ThemeDivider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    intro
                     ForEach($sources) { $source in
                         row($source)
                     }
@@ -49,18 +48,6 @@ struct CustomLyricSourcesView: View {
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 14)
-    }
-
-    private var intro: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("内置的歌词来源只有 LRCLIB。自动联网找不到时，会按下面的顺序试你添加的歌词源（只用带时间轴的歌词）；「联网搜索」里每个歌词源也会多出一栏。")
-            Text("网址里可以写 {title} 歌名、{artist} 歌手、{album} 专辑、{duration} 时长（秒），会自动换成这首歌的信息。网址返回 LRC 歌词文本，或者 LRCLIB 格式的 JSON（syncedLyrics / plainLyrics）都可以。")
-            Text("你添加的歌词源由你自己负责，请只使用你有权使用的来源。")
-                .foregroundStyle(Theme.mustard)
-        }
-        .font(.ui(12))
-        .foregroundStyle(Theme.text2)
-        .fixedSize(horizontal: false, vertical: true)
     }
 
     private func row(_ source: Binding<CustomLyricSource>) -> some View {

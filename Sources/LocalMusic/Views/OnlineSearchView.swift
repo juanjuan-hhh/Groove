@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 「联网搜索」面板：歌词查 LRCLIB 和用户自己添加的歌词源，封面查酷狗 / 网易云 / iTunes，列出所有结果，自己选用哪个封面、哪份歌词
+/// 「联网搜索」面板：歌词查 LRCLIB 和用户自己添加的歌词源，封面查网易云 / iTunes，列出所有结果，自己选用哪个封面、哪份歌词
 struct OnlineSearchView: View {
     let track: Track
 
@@ -19,9 +19,9 @@ struct OnlineSearchView: View {
         case empty
     }
 
-    /// 歌词：LRCLIB + 打开着的自定义歌词源；封面：酷狗、网易云、iTunes
+    /// 歌词：LRCLIB + 打开着的自定义歌词源；封面：网易云、iTunes
     @State private var sources: [OnlineCandidate.Source] =
-        [.lrclib] + CustomLyricSources.enabled.map { .custom($0) } + [.kugou, .netease, .itunes]
+        [.lrclib] + CustomLyricSources.enabled.map { .custom($0) } + [.netease, .itunes]
 
     /// 点了某个来源的胶囊：只显示这个来源的结果（再点一下显示全部）
     @State private var filter: OnlineCandidate.Source?
@@ -340,7 +340,6 @@ struct OnlineSearchView: View {
                 switch source {
                 case .lrclib: result = await OnlineSearch.lrclib(q)
                 case .custom(let custom): result = await OnlineSearch.custom(custom, query: q, track: track)
-                case .kugou: result = await OnlineSearch.kugou(q)
                 case .netease: result = await OnlineSearch.netease(q)
                 case .itunes: result = await OnlineSearch.itunes(q)
                 }
@@ -356,7 +355,7 @@ struct OnlineSearchView: View {
     /// 自定义歌词源改过了：换成新的来源列表，按搜索框里的字重新搜
     private func reloadSources() {
         let updated: [OnlineCandidate.Source] =
-            [.lrclib] + CustomLyricSources.enabled.map { .custom($0) } + [.kugou, .netease, .itunes]
+            [.lrclib] + CustomLyricSources.enabled.map { .custom($0) } + [.netease, .itunes]
         guard updated != sources else { return }
         if let filter, !updated.contains(filter) { self.filter = nil }
         sources = updated
@@ -428,7 +427,6 @@ struct OnlineSearchView: View {
         switch source {
         case .lrclib: return Theme.sage
         case .custom: return Theme.teal
-        case .kugou: return Theme.slate
         case .netease: return Theme.terra
         case .itunes: return Theme.mustard
         }
