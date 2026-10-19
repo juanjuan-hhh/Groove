@@ -1753,35 +1753,45 @@ private struct FloatingLyricView: View {
         // 两行时当前句在上半、下一句在下半；一行时当前句在正中
         let base = twoLines ? -pitch / 2 : 0
         let window = rows.indices.filter { $0 >= pos - 1 && $0 <= pos + 2 }
-        let small = 11.0 / 14.0
         // 每行都按胶囊最宽时排版（固定宽度，不跟着胶囊宽度的动画一起变），换句的时候字不会重新排、不会跳
         let full = max(1, FloatingBall.shared.lyricWidth - 32 * s)
         return GeometryReader { geo in
             ZStack(alignment: align) {
                 ForEach(window, id: \.self) { k in
                     let isCurrent = k == pos
-                    let shown = isCurrent || (twoLines && k == pos + 1)
-                    Text(rows[k].text)
-                        .font(.ui(14 * s, .semibold))
-                        .foregroundStyle(inBar ? barTextColor.opacity(isCurrent ? 1 : 0.6) : isCurrent ? currentTextColor : otherTextColor)
-                        // 菜单栏上没有底，衬一圈很淡的反色光，背景花的时候也看得清
-                        .shadow(color: inBar ? barTextColor == .black ? .white.opacity(0.5) : .black.opacity(0.5) : .clear, radius: 1)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        // 字号换不出平滑动画，用缩放：不是当前句时缩到 11/14，靠球那一边对齐；
-                        // 排版时按缩放前的宽度给，缩完正好是胶囊的宽度，不会提前出省略号
-                        .frame(width: full / (isCurrent ? 1 : small), alignment: align)
-                        .scaleEffect(isCurrent ? 1 : small, anchor: align == .trailing ? .trailing : align == .center ? .center : .leading)
-                        .frame(width: full, alignment: align)
-                        .opacity(shown ? 1 : 0)
-                        .offset(y: base + CGFloat(k - pos) * pitch)
-                        .transition(.opacity)
+                    let isNext = twoLines && k == pos + 1
+                    // 大字（当前句）和小字（下一句）各排一份、叠在同一个位置，换句时两份一起只往上移、互相淡入淡出。
+                    // 移动的时候不缩放：靠球那一边对齐的缩放会让长句远离球的那头横着扫过去，看起来像走弧线
+                    ZStack(alignment: align) {
+                        rowText(rows[k].text, current: true, scale: s, width: full, align: align)
+                            .opacity(isCurrent ? 1 : 0)
+                        rowText(rows[k].text, current: false, scale: s, width: full, align: align)
+                            .opacity(isNext ? 1 : 0)
+                    }
+                    .offset(y: base + CGFloat(k - pos) * pitch)
+                    .transition(.opacity)
                 }
             }
             .frame(width: geo.size.width, height: geo.size.height, alignment: align)
             .clipped()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: align)
+    }
+
+    /// 一行歌词：current 时是当前句的大字，不然是下一句的小字（缩到 11/14，靠球那一边对齐）
+    private func rowText(_ text: String, current: Bool, scale s: CGFloat, width full: CGFloat, align: Alignment) -> some View {
+        let small = 11.0 / 14.0
+        return Text(text)
+            .font(.ui(14 * s, .semibold))
+            .foregroundStyle(inBar ? barTextColor.opacity(current ? 1 : 0.6) : current ? currentTextColor : otherTextColor)
+            // 菜单栏上没有底，衬一圈很淡的反色光，背景花的时候也看得清
+            .shadow(color: inBar ? barTextColor == .black ? .white.opacity(0.5) : .black.opacity(0.5) : .clear, radius: 1)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            // 字号换不出平滑动画，用缩放；排版时按缩放前的宽度给，缩完正好是胶囊的宽度，不会提前出省略号
+            .frame(width: full / (current ? 1 : small), alignment: align)
+            .scaleEffect(current ? 1 : small, anchor: align == .trailing ? .trailing : align == .center ? .center : .leading)
+            .frame(width: full, alignment: align)
     }
 
     /// 胶囊当作「当前句」的那一行：一般就是正在唱的这句；
