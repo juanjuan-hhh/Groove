@@ -758,6 +758,8 @@ private struct SyncedLyrics: View {
     @State private var userBrowsing = false
     /// 停下后等一会儿再回到当前这句
     @State private var resumeTask: Task<Void, Never>?
+    /// 当前这句的放大倍数
+    private static let currentScale: CGFloat = 1.18
 
     var body: some View {
         let lines = player.lyrics
@@ -773,9 +775,9 @@ private struct SyncedLyrics: View {
                             .font(.ui(20, .heavy))
                             .foregroundStyle(i == current ? Theme.text : Theme.text3)
                             .multilineTextAlignment(.center)
-                            .frame(maxWidth: .infinity)
-                            .padding(.horizontal, 10)
-                            .scaleEffect(i == current ? 1.18 : 1, anchor: .center)
+                            // 排版宽度按放大后也放得下来定（两边各留 8pt）：长句换行后当前句放大也不会超出歌词区被切掉
+                            .containerRelativeFrame(.horizontal) { width, _ in max(1, (width - 16) / Self.currentScale) }
+                            .scaleEffect(i == current ? Self.currentScale : 1, anchor: .center)
                             .contentShape(Rectangle())
                             .onTapGesture {
                                 guard let t = line.time else { return }
