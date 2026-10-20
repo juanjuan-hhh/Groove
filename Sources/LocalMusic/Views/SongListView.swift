@@ -26,7 +26,10 @@ enum SongColumns {
     static let time: CGFloat = 48
     static let menu: CGFloat = 24
     static let leading: CGFloat = 24
-    static let trailing: CGFloat = 36
+    /// 列表滚动条的宽度（系统的值）：最右边这一条留给滚动条，字母条和每行的内容都在它左边
+    static let scroller: CGFloat = NSScroller.scrollerWidth(for: .regular, scrollerStyle: .overlay)
+    /// 右边：滚动条 + 字母条（18 + 两边各 6）+ 6
+    static let trailing: CGFloat = scroller + 30
 }
 
 /// 歌曲列表（带顶部的 播放全部 / 随机 / 循环 / 排序，和右侧 A–Z 索引）
@@ -328,7 +331,9 @@ struct AlphabetIndex: View {
         }
         .padding(.vertical, vPad)
         .background(Capsule().fill(Theme.panel))
-        .padding(.horizontal, 6)
+        // 右边让出滚动条的位置，滚动条不被字母条盖住
+        .padding(.leading, 6)
+        .padding(.trailing, SongColumns.scroller)
         .contentShape(Rectangle())
         .gesture(
             DragGesture(minimumDistance: 0)
