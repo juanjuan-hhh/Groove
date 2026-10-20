@@ -1688,11 +1688,11 @@ private struct FloatingLyricView: View {
         // 两行模式唱到最后一句（没有下一句了）时，胶囊缩回一行的高度
         let two = twoLines && !next.isEmpty
         // 量大小用：现在这句（+ 下一句），不显示，只撑开胶囊。宽度跟着这几句变，带动画。
-        // 下一句按放大后的字号量：它马上要变成当前句，到时候胶囊不用再突然变宽
+        // 下一句按它显示出来的小字量（14 号缩到 11/14），胶囊贴着字；换句时宽度和字一起动画变
         ZStack(alignment: rowAlign) {
             Text(line).font(.ui(14 * s, .semibold)).lineLimit(1)
             if two {
-                Text(next).font(.ui(14 * s, .semibold)).lineLimit(1)
+                Text(next).font(.ui(11 * s, .semibold)).lineLimit(1)
             }
         }
         .frame(height: two ? 32 * s : nil)
