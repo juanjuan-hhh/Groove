@@ -148,6 +148,7 @@ struct TopBar: View {
     @AppStorage(AppearanceMode.key) private var appearance: AppearanceMode = .dark
     @AppStorage(SpinningArtwork.enabledKey) private var spinCover = true
     @AppStorage(FloatingBall.alwaysKey) private var ballAlwaysOn = false
+    @AppStorage(PortholeLink.enabledKey) private var portholeLyrics = true
 
     var body: some View {
         HStack(spacing: 14) {
@@ -225,6 +226,7 @@ struct TopBar: View {
                 // 悬浮球的其他设置在悬浮球上点右键
                 Toggle("一直显示悬浮球", isOn: Binding(get: { ballAlwaysOn },
                                                     set: { FloatingBall.shared.setAlwaysOn($0, player: player) }))
+                Toggle("在 Porthole 上显示歌词", isOn: $portholeLyrics)
                 Menu("自定义背景图片") {
                     Button("选择图片…") { AppBackground.shared.choose() }
                     Button("调整模糊和透明度…") { AppBackground.shared.showAdjuster() }

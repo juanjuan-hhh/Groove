@@ -17,6 +17,8 @@ struct LocalMusicApp: App {
                 .tint(Theme.accent)
                 .onAppear {
                     appDelegate.player = player
+                    // 正在播放的歌词同步到 Porthole 小屏（设置里可以关）
+                    PortholeLink.shared.start(player: player)
                     // 「一直显示悬浮球」：打开 App 时就放出来
                     if FloatingBall.alwaysOn { FloatingBall.shared.show(player: player) }
                 }
