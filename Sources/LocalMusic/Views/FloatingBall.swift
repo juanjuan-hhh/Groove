@@ -1672,6 +1672,8 @@ private struct FloatingLyricView: View {
     /// 底色是页面底色为主、淡淡透一点封面色（和正在播放页的背景一样），字照常用主题的颜色
     private var currentTextColor: Color { Theme.text }
     private var otherTextColor: Color { Theme.text2 }
+    /// 上一次胶囊里字的宽度，用来判断这次换句胶囊是变宽还是变窄
+    @State private var lastTextWidth: CGFloat = 0
 
     var body: some View {
         let ball = FloatingBall.shared
@@ -1687,15 +1689,18 @@ private struct FloatingLyricView: View {
         let rowAlign: Alignment = ball.lyricCentered ? .center : ball.lyricOnLeft ? .trailing : .leading
         // 两行模式唱到最后一句（没有下一句了）时，胶囊缩回一行的高度
         let two = twoLines && !next.isEmpty
-        // 量大小用：现在这句（+ 下一句），不显示，只撑开胶囊。宽度跟着这几句变，带动画。
-        // 下一句按它显示出来的小字量（14 号缩到 11/14），胶囊贴着字；换句时宽度和字一起动画变
-        ZStack(alignment: rowAlign) {
-            Text(line).font(.ui(14 * s, .semibold)).lineLimit(1)
-            if two {
-                Text(next).font(.ui(11 * s, .semibold)).lineLimit(1)
-            }
-        }
-        .frame(height: two ? 32 * s : nil)
+        // 胶囊贴着字：现在这句（大字）和下一句（显示出来的小字，14 号缩到 11/14）里宽的那个，最宽到整个歌词条
+        let textWidth = min(max(1, ball.lyricWidth - 32 * s),
+                            max(NotchIslandView.width(of: line, size: 14 * s, weight: .semibold),
+                                two ? NotchIslandView.width(of: next, size: 14 * s, weight: .semibold) * 11 / 14 : 0))
+        // 换句时：要变宽就先很快撑开，再让新的大字淡入，字不会被胶囊边切掉；
+        // 要变窄就等旧的那句往上移走、淡得差不多了再收，不会看到边扫过还没淡掉的字
+        let widthAnimation: Animation = textWidth > lastTextWidth
+            ? .easeOut(duration: 0.18)
+            : .easeInOut(duration: 0.25).delay(0.15)
+        // 量大小用，不显示，只撑开胶囊（宽度按上面量好的，高度按一行 / 两行）
+        Text(line).font(.ui(14 * s, .semibold)).lineLimit(1)
+        .frame(width: textWidth, height: two ? 32 * s : nil)
         .opacity(0)
         // 真正显示的：前后几句排成一列，换句时整列往上推一行；
         // 下一句上移变成当前这句（小字淡出、大字淡入），旧的当前句往上移出、变淡
@@ -1733,6 +1738,8 @@ private struct FloatingLyricView: View {
         .contentShape(RoundedRectangle(cornerRadius: 18 * s, style: .continuous))
         .onTapGesture(count: 2) { FloatingBall.shared.exit() }
         .allowsHitTesting(visible)
+        .animation(widthAnimation, value: textWidth)
+        .onChange(of: textWidth, initial: true) { _, w in lastTextWidth = w }
         .animation(.easeInOut(duration: 0.35), value: player.currentLyricIndex)
         // 贴着球那一边对齐，长度跟着歌词变，最长到整个歌词条；上下居中对齐球
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: rowAlign)
@@ -1781,6 +1788,8 @@ private struct FloatingLyricView: View {
                     .transition(.opacity)
                 }
             }
+            // 换句时整列往上推用自己的动画；外面这层裁切框跟着胶囊宽度的动画走，不然新的大字会被还没撑开的框切掉
+            .animation(.easeInOut(duration: 0.35), value: pos)
             .frame(width: geo.size.width, height: geo.size.height, alignment: align)
             .clipped()
         }

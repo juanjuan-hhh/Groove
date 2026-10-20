@@ -164,7 +164,7 @@ struct NotchIslandView: View {
     }
 
     /// 量一行字有多宽（和 .ui 一样用圆体），黑底按它变宽
-    private static func width(of text: String, size: CGFloat, weight: NSFont.Weight) -> CGFloat {
+    static func width(of text: String, size: CGFloat, weight: NSFont.Weight) -> CGFloat {
         guard !text.isEmpty else { return 0 }
         var font = NSFont.systemFont(ofSize: size, weight: weight)
         if let rounded = font.fontDescriptor.withDesign(.rounded) {
