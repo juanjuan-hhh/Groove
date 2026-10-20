@@ -37,16 +37,6 @@ final class FloatingBall {
     static var onTop: Bool { UserDefaults.standard.object(forKey: onTopKey) as? Bool ?? true }
     static var windowLevel: NSWindow.Level { onTop ? .statusBar : .normal }
 
-    /// 「贴边颜色」：贴边半圆球上的进度环、圆点、音柱用什么颜色。
-    /// auto 按球后面的深浅自动选；有些壁纸读不到（比如「照片」App 设的壁纸），自动会选错，就手动定成白色或黑色
-    static let tuckColorKey = "floatingBallTuckColor"
-    static var tuckColor: String { UserDefaults.standard.string(forKey: tuckColorKey) ?? "auto" }
-
-    func setTuckColor(_ value: String) {
-        UserDefaults.standard.set(value, forKey: Self.tuckColorKey)
-        if let frame = panel?.frame { updateBackdrop(for: frame) }
-    }
-
     func setOnTop(_ on: Bool) {
         UserDefaults.standard.set(on, forKey: Self.onTopKey)
         for window in [panel, lyricPanel, queuePanel].compactMap({ $0 }) { window.level = Self.windowLevel }
@@ -652,13 +642,6 @@ final class FloatingBall {
         menu.addItem(item("自动贴边", checked: Self.autoDock) {
             FloatingBall.shared.setAutoDock(!FloatingBall.autoDock)
         })
-        let colorItem = NSMenuItem(title: "贴边颜色", action: nil, keyEquivalent: "")
-        let colorMenu = NSMenu()
-        for (value, label) in [("auto", "自动"), ("white", "白色（深色壁纸用）"), ("black", "黑色（浅色壁纸用）")] {
-            colorMenu.addItem(item(label, checked: Self.tuckColor == value) { FloatingBall.shared.setTuckColor(value) })
-        }
-        colorItem.submenu = colorMenu
-        menu.addItem(colorItem)
         menu.addItem(item("读取屏幕颜色（需要屏幕录制权限）",
                           checked: ScreenColorSampler.enabled && ScreenColorSampler.granted) {
             ScreenColorSampler.toggle()
@@ -677,13 +660,13 @@ final class FloatingBall {
     /// 不然看桌面壁纸上球所在那一小块的亮度。别的 App 的窗口看不到（那要「屏幕录制」权限），只能按壁纸算。
     /// 开了「读取屏幕颜色」并且有权限时，直接截球后面那一小块看亮度，截不到再按上面的办法猜
     func updateBackdrop(for frame: NSRect) {
-        // 「自动」时最准的是截后面的颜色，要屏幕录制权限：第一次贴边藏起来时向系统要一次（只弹这一次，Groove 也会出现在设置的列表里）
-        if Self.tuckColor == "auto", ScreenColorSampler.enabled, !ScreenColorSampler.granted,
+        // 最准的是截后面的颜色，要屏幕录制权限：第一次贴边藏起来时向系统要一次（只弹这一次，Groove 也会出现在设置的列表里）
+        if ScreenColorSampler.enabled, !ScreenColorSampler.granted,
            !UserDefaults.standard.bool(forKey: ScreenColorSampler.askedKey) {
             UserDefaults.standard.set(true, forKey: ScreenColorSampler.askedKey)
             CGRequestScreenCaptureAccess()
         }
-        if Self.tuckColor == "auto", ScreenColorSampler.enabled, ScreenColorSampler.granted {
+        if ScreenColorSampler.enabled, ScreenColorSampler.granted {
             guard !ballSampling else { return }
             ballSampling = true
             Task {
@@ -795,14 +778,7 @@ final class FloatingBall {
     }
 
     private func guessBackdrop(for frame: NSRect) {
-        let light: Bool
-        if Self.tuckColor != "auto" {
-            // 手动定了颜色：白色是给深色背景用的
-            light = Self.tuckColor == "black"
-        } else {
-            light = guessLight(behind: frame)
-        }
-        setBackdropLight(light)
+        setBackdropLight(guessLight(behind: frame))
     }
 
     /// 不截屏时猜某块屏幕后面是深是浅：最前面盖住这块的是 Groove 自己的窗口就按它的外观；
