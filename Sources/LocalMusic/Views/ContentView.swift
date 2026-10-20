@@ -226,7 +226,6 @@ struct TopBar: View {
                 // 悬浮球的其他设置在悬浮球上点右键
                 Toggle("一直显示悬浮球", isOn: Binding(get: { ballAlwaysOn },
                                                     set: { FloatingBall.shared.setAlwaysOn($0, player: player) }))
-                Toggle("在 Porthole 上显示歌词", isOn: $portholeLyrics)
                 Menu("自定义背景图片") {
                     Button("选择图片…") { AppBackground.shared.choose() }
                     Button("调整模糊和透明度…") { AppBackground.shared.showAdjuster() }
@@ -244,6 +243,11 @@ struct TopBar: View {
                 Divider()
                 // 打开版本信息卡片，里面可以检查更新
                 Button("当前版本 \(AppUpdate.version)") { UpdateCards.showAbout() }
+                Divider()
+                // 放在最下面；没装 Porthole 时变灰、显示为关，打不开（原来的选择留着，装上后照旧）
+                Toggle("在 Porthole 上显示歌词", isOn: Binding(get: { portholeLyrics && PortholeLink.shared.installed },
+                                                         set: { portholeLyrics = $0 }))
+                    .disabled(!PortholeLink.shared.installed)
             } label: {
                 Image(systemName: "gearshape").font(.system(size: 13))
                     .foregroundStyle(Theme.text2)

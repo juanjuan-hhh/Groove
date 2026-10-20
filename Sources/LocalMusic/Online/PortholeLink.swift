@@ -1,10 +1,13 @@
 import Foundation
+import Observation
 
 /// 把正在播放的歌词同步到 Porthole 桌面小屏（经本机的 Porthole bridge：http://127.0.0.1:8080）。
 /// 换歌 / 歌词载入后把歌名、歌手和整首带时间轴的歌词发一次，小屏收到后自己按时间换句；
 /// 之后只在暂停、继续、拖进度、调整歌词时间时发一个小的进度同步（外加每 20 秒一次心跳）。
 /// bridge 没开时静默跳过，每 10 秒才再试一次，不影响播放。
+/// 没装 Porthole（找不到 bridge）时设置里的开关变灰、不发任何东西。
 @MainActor
+@Observable
 final class PortholeLink {
     static let shared = PortholeLink()
 
@@ -12,22 +15,33 @@ final class PortholeLink {
     static let enabledKey = "portholeLyrics"
     static var enabled: Bool { UserDefaults.standard.object(forKey: enabledKey) as? Bool ?? true }
 
+    /// 这台 Mac 上装了 Porthole：装过 Porthole bridge（它的程序文件夹或开机自启项在）。每 10 秒重新看一次
+    private(set) var installed = PortholeLink.detectInstalled()
+    @ObservationIgnored private var checkedAt = Date()
+
+    private static func detectInstalled() -> Bool {
+        let library = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library")
+        return [library.appendingPathComponent("Application Support/Porthole Bridge"),
+                library.appendingPathComponent("LaunchAgents/com.porthole.bridge.plist")]
+            .contains { FileManager.default.fileExists(atPath: $0.path) }
+    }
+
     private static let base = URL(string: "http://127.0.0.1:8080")!
     private static let heartbeat: TimeInterval = 20
     private static let retryAfter: TimeInterval = 10
     /// 实际进度和按上次同步推算的差这么多秒，就当作拖了进度
     private static let seekTolerance = 0.8
 
-    private weak var player: PlayerController?
-    private var timer: Timer?
-    private var sentKey: Int?           // 已发给 bridge 的那首歌 + 那份歌词；nil = 小屏上没有
-    private var sentPlaying = false
-    private var sentPos = 0.0           // 上次同步的进度（秒，已含歌词时间调整）
-    private var sentAt = Date.distantPast
-    private var busy = false
-    private var retryAt = Date.distantPast
+    @ObservationIgnored private weak var player: PlayerController?
+    @ObservationIgnored private var timer: Timer?
+    @ObservationIgnored private var sentKey: Int?           // 已发给 bridge 的那首歌 + 那份歌词；nil = 小屏上没有
+    @ObservationIgnored private var sentPlaying = false
+    @ObservationIgnored private var sentPos = 0.0           // 上次同步的进度（秒，已含歌词时间调整）
+    @ObservationIgnored private var sentAt = Date.distantPast
+    @ObservationIgnored private var busy = false
+    @ObservationIgnored private var retryAt = Date.distantPast
 
-    private let session: URLSession = {
+    @ObservationIgnored private let session: URLSession = {
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = 2
         return URLSession(configuration: config)
@@ -42,8 +56,13 @@ final class PortholeLink {
     }
 
     private func tick() {
+        if Date().timeIntervalSince(checkedAt) >= Self.retryAfter {
+            checkedAt = Date()
+            let found = Self.detectInstalled()
+            if found != installed { installed = found }
+        }
         guard !busy, Date() >= retryAt, let player else { return }
-        guard Self.enabled, let track = player.current else {
+        guard Self.enabled, installed, let track = player.current else {
             if sentKey != nil { send("/nowplaying/stop", [:]) { $0.sentKey = nil } }
             return
         }
