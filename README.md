@@ -6,7 +6,7 @@
 
 ## 下载安装
 
-下载 `Groove-v1.3-macOS.dmg`，拖入「应用程序」。
+下载 `Groove.dmg`，拖入「应用程序」。
 
 App 没有经过 Apple 公证，第一次打开时系统会提示「Apple 无法验证"Groove"是否包含恶意软件」。需要手动放行一次：
 
